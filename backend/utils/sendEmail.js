@@ -45,7 +45,7 @@ const sendEmail = async ({ to, subject, html, text }) => {
       subject,
       html,
       text: text || subject,
-      replyTo: "support@salesforge.app",
+      replyTo: process.env.SMTP_USER,
       headers: {
         "List-Unsubscribe": `<${frontendUrl}/notifications-prefs>`,
         "List-Unsubscribe-Post": "List-Unsubscribe=One-Click",
