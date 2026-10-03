@@ -9,7 +9,6 @@ const { personalizeCampaignEmail } = require("../services/aiEmailService");
 const { createInAppNotification } = require("../services/notificationService");
 const { recordAudit } = require("../services/auditService");
 const logger = require("../utils/logger");
-const { activateCampaign } = require("../controllers/campaignController");
 
 
 let running = false;
@@ -252,62 +251,8 @@ try {
               status: "COMPLETED",
               currentStep: nextStepIndex,
               nextRunAt: null,
-              completedAt: new Date(),
             },
           });
-
-          // Check whether every enrollment in this campaign sequence
-          // has completed its final step.
-          const remainingEnrollments =
-            await prisma.sequenceEnrollment.count({
-              where: {
-                sequenceId: enrollment.sequenceId,
-                status: {
-                  not: "COMPLETED",
-                },
-              },
-            });
-
-          if (remainingEnrollments === 0) {
-            const campaignSequence = await prisma.sequence.findUnique({
-              where: { id: enrollment.sequenceId },
-              select: { name: true },
-            });
-
-            if (campaignSequence?.name?.startsWith("Campaign: ")) {
-              const campaignName =
-                campaignSequence.name.slice("Campaign: ".length);
-
-              const campaign = await prisma.workflow.findFirst({
-                where: {
-                  name: campaignName,
-                },
-                select: {
-                  id: true,
-                  conditions: true,
-                },
-              });
-
-              if (campaign) {
-                const conditions =
-                  campaign.conditions &&
-                  typeof campaign.conditions === "object"
-                    ? campaign.conditions
-                    : {};
-
-                await prisma.workflow.update({
-                  where: { id: campaign.id },
-                  data: {
-                    active: false,
-                    conditions: {
-                      ...conditions,
-                      status: "completed",
-                    },
-                  },
-                });
-              }
-            }
-          }
         } else {
           const nextRunAt = new Date(
             enrollment.startedAt.getTime() +
@@ -382,79 +327,12 @@ try {
   },
 };
 
-const activateDueCampaigns = async () => {
-  const now = new Date();
-
-  const campaigns = await prisma.workflow.findMany({
-    where: {
-      active: false,
-      trigger: "SCHEDULED_TIME",
-    },
-    orderBy: {
-      id: "asc",
-    },
-  });
-
-  for (const campaign of campaigns) {
-    try {
-      const conditions =
-        campaign.conditions &&
-        typeof campaign.conditions === "object"
-          ? campaign.conditions
-          : {};
-
-      if (
-        conditions.status === "running" ||
-        conditions.status === "completed" ||
-        conditions.status === "cancelled" ||
-        conditions.status === "paused"
-      ) {
-        continue;
-      }
-
-      if (!conditions.schedule) {
-        continue;
-      }
-
-      const scheduledAt = new Date(conditions.schedule);
-
-      if (
-        Number.isNaN(scheduledAt.getTime()) ||
-        scheduledAt.getTime() > now.getTime()
-      ) {
-        continue;
-      }
-
-      const result = await activateCampaign({
-        campaign,
-        orgId: campaign.orgId,
-        userId: campaign.userId,
-        allowPastSchedule: true,
-      });
-
-      logger.info("job.campaign.auto_activated", {
-        campaignId: campaign.id,
-        campaignName: campaign.name,
-        scheduledAt: result.scheduledAt,
-        enrolled: result.enrolled,
-      });
-    } catch (e) {
-      logger.error("job.campaign.auto_activation_error", {
-        campaignId: campaign.id,
-        campaignName: campaign.name,
-        err: e.message,
-      });
-    }
-  }
-};
-
 const run = async () => {
   if (running) return;
   running = true;
 
   try {
 
-    await activateDueCampaigns();
     await tasks.followupNewLeads();
     await tasks.processSequenceEnrollments();
   } catch (e) {

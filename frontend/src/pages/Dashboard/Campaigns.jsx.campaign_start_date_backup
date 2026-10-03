@@ -122,17 +122,13 @@ const Campaigns = () => {
 
     try {
       if (!draft.schedule) {
-        toast.error("Please select a campaign start date.");
+        toast.error("Please select a campaign date and time.");
         return;
       }
 
-      const startDate = draft.schedule.slice(0, 10);
-      const startTime = draft.steps?.[0]?.time || "10:00";
-      const scheduleDateTime = `${startDate}T${startTime}`;
-
       const payload = {
         ...draft,
-        schedule: new Date(scheduleDateTime).toISOString(),
+        schedule: new Date(draft.schedule).toISOString(),
       };
 
       if (editingId) {
@@ -439,10 +435,10 @@ const Campaigns = () => {
               </div>
 
               <UptoInput
-                label="Campaign Start Date"
-                type="date"
-                min={new Date().toISOString().slice(0, 10)}
-                value={(draft.schedule || "").slice(0, 10)}
+                label="Campaign Start Date & Time"
+                type="datetime-local"
+                min={new Date().toISOString().slice(0, 16)}
+                value={draft.schedule || ""}
                 onChange={(e) => setDraft({ ...draft, schedule: e.target.value })}
                 required
               />

@@ -69,7 +69,6 @@ const create = asyncHandler(async (req, res) => {
   ],
   type,
   schedule: schedule || null,
-  status: schedule ? "scheduled" : status,
   budget: budget || null,
 },
       actions: content || [{ type: "SEND_EMAIL" }],

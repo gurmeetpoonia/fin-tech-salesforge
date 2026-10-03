@@ -69,7 +69,6 @@ const create = asyncHandler(async (req, res) => {
   ],
   type,
   schedule: schedule || null,
-  status: schedule ? "scheduled" : status,
   budget: budget || null,
 },
       actions: content || [{ type: "SEND_EMAIL" }],
@@ -152,23 +151,21 @@ const remove = asyncHandler(async (req, res) => {
   return response.success(res, { message: "Campaign deleted." });
 });
 
-const activateCampaign = async ({
-  campaign,
-  orgId,
-  userId,
-  allowPastSchedule = false,
-}) => {
+const launch = asyncHandler(async (req, res) => {
+  const campaign = await prisma.workflow.findFirst({
+    where: {
+      id: Number(req.params.id),
+      orgId: req.orgId,
+    },
+  });
+
   if (!campaign) {
     throw new AppError("Campaign not found.", 404);
   }
 
   if (campaign.conditions?.status === "running") {
-    return {
-      alreadyRunning: true,
-      scheduledAt: campaign.conditions?.schedule || null,
-      enrolled: 0,
-    };
-  }
+  throw new AppError("Campaign is already running.", 400);
+}
 
   const conditions =
     typeof campaign.conditions === "object" && campaign.conditions
@@ -178,33 +175,28 @@ const activateCampaign = async ({
   const subject = conditions.subject || "";
   const body = conditions.body || "";
   const audience = conditions.audience || "all";
-  const scheduledAt = conditions.schedule
-    ? new Date(conditions.schedule)
-    : null;
+  const scheduledAt = conditions.schedule ? new Date(conditions.schedule) : null;
 
   if (!scheduledAt || Number.isNaN(scheduledAt.getTime())) {
-    throw new AppError(
-      "A valid campaign schedule date and time is required.",
-      400
-    );
+    throw new AppError("A valid campaign schedule date and time is required.", 400);
   }
 
-  if (!allowPastSchedule && scheduledAt.getTime() < Date.now()) {
-    throw new AppError(
-      "Campaign schedule must be in the future.",
-      400
-    );
+  if (scheduledAt.getTime() < Date.now()) {
+    throw new AppError("Campaign schedule must be in the future.", 400);
   }
 
   const campaignSteps = Array.isArray(conditions.steps)
-    ? conditions.steps
-    : [
-        {
-          day: 0,
-          subject,
-          body,
-        },
-      ];
+  ? conditions.steps
+  : [
+      {
+        day: 0,
+        subject,
+        body,
+      },
+    ];
+
+
+
 
   if (!subject) {
     throw new AppError("Campaign subject is required.", 400);
@@ -214,6 +206,10 @@ const activateCampaign = async ({
     throw new AppError("Campaign email body is required.", 400);
   }
 
+  // Resolve the campaign audience.
+  // The frontend stores audience as an object such as:
+  // { type: "all" }, { type: "tag", tagId: 1 },
+  // or { type: "status", status: "new" }.
   const audienceConfig =
     typeof audience === "string"
       ? { type: audience }
@@ -221,9 +217,10 @@ const activateCampaign = async ({
 
   const audienceType = audienceConfig.type || "all";
 
+  // Get leads for this campaign
   let leads;
   const leadWhere = {
-    orgId,
+    orgId: req.orgId,
   };
 
   if (audienceType === "tag") {
@@ -240,17 +237,11 @@ const activateCampaign = async ({
     };
   } else if (audienceType === "status") {
     if (!audienceConfig.status) {
-      throw new AppError(
-        "A valid audience status is required.",
-        400
-      );
+      throw new AppError("A valid audience status is required.", 400);
     }
 
     leadWhere.status = audienceConfig.status;
-  } else if (
-    audienceType !== "all" &&
-    audienceType !== "segment"
-  ) {
+  } else if (audienceType !== "all" && audienceType !== "segment") {
     throw new AppError("Unsupported campaign audience.", 400);
   }
 
@@ -258,24 +249,18 @@ const activateCampaign = async ({
     const savedSearchId = Number(audienceConfig.savedSearchId);
 
     if (!Number.isInteger(savedSearchId) || savedSearchId <= 0) {
-      throw new AppError(
-        "A valid saved audience segment is required.",
-        400
-      );
+      throw new AppError("A valid saved audience segment is required.", 400);
     }
 
     const savedSearch = await prisma.savedSearch.findFirst({
       where: {
         id: savedSearchId,
-        orgId,
+        orgId: req.orgId,
       },
     });
 
     if (!savedSearch) {
-      throw new AppError(
-        "Saved audience segment not found.",
-        404
-      );
+      throw new AppError("Saved audience segment not found.", 404);
     }
 
     const filters =
@@ -315,103 +300,53 @@ const activateCampaign = async ({
   });
 
   if (leads.length === 0) {
-    throw new AppError(
-      "No leads with email addresses found.",
-      400
-    );
+    throw new AppError("No leads with email addresses found.", 400);
   }
-
-  // Prevent duplicate activation if another scheduler/manual request
-  // has already created the campaign sequence.
-  const existingSequence = await prisma.sequence.findFirst({
-    where: {
-      orgId,
-      name: `Campaign: ${campaign.name}`,
-      status: "ACTIVE",
-    },
-    select: {
-      id: true,
-    },
-  });
-
-  if (existingSequence) {
-    return {
-      alreadyRunning: true,
-      scheduledAt: scheduledAt.toISOString(),
-      enrolled: 0,
-    };
-  }
-
   const sequence = await prisma.sequence.create({
+  data: {
+    orgId: req.orgId,
+    userId: req.user.id,
+    name: `Campaign: ${campaign.name}`,
+    description: campaign.description || null,
+    status: "ACTIVE",
+    steps: campaignSteps,
+  },
+});
+
+  // Create an enrollment for each lead
+  for (const lead of leads) {
+  await prisma.sequenceEnrollment.create({
     data: {
-      orgId,
-      userId,
-      name: `Campaign: ${campaign.name}`,
-      description: campaign.description || null,
+      sequenceId: sequence.id,
+      leadId: lead.id,
+      email: lead.email,
       status: "ACTIVE",
+      currentStep: 0,
       steps: campaignSteps,
+      startedAt: scheduledAt,
+      nextRunAt: scheduledAt,
     },
   });
-
-  for (const lead of leads) {
-    await prisma.sequenceEnrollment.create({
-      data: {
-        sequenceId: sequence.id,
-        leadId: lead.id,
-        email: lead.email,
-        status: "ACTIVE",
-        currentStep: 0,
-        steps: campaignSteps,
-        startedAt: scheduledAt,
-        nextRunAt: scheduledAt,
-      },
-    });
-  }
+}
 
   await prisma.workflow.update({
-    where: { id: campaign.id },
-    data: {
-      active: true,
-      conditions: {
-        ...conditions,
-        status: "running",
-        schedule: scheduledAt.toISOString(),
-      },
+  where: { id: campaign.id },
+  data: {
+    active: true,
+    conditions: {
+      ...conditions,
+      status: "running",
+      schedule: scheduledAt.toISOString(),
     },
-  });
+  },
+});
 
   invalidateCache("/campaigns");
 
-  return {
-    alreadyRunning: false,
-    scheduledAt: scheduledAt.toISOString(),
-    enrolled: leads.length,
-  };
-};
-
-const launch = asyncHandler(async (req, res) => {
-  const campaign = await prisma.workflow.findFirst({
-    where: {
-      id: Number(req.params.id),
-      orgId: req.orgId,
-    },
-  });
-
-  if (!campaign) {
-    throw new AppError("Campaign not found.", 404);
-  }
-
-  const result = await activateCampaign({
-    campaign,
-    orgId: req.orgId,
-    userId: req.user.id,
-    allowPastSchedule: false,
-  });
-
   return response.success(res, {
     message: "Campaign scheduled.",
-    scheduledAt: result.scheduledAt,
-    enrolled: result.enrolled,
+    scheduledAt: scheduledAt.toISOString(),
+    enrolled: leads.length,
   });
 });
 
@@ -650,7 +585,6 @@ const metrics = asyncHandler(async (req, res) => {
 });
 
 module.exports = {
-  activateCampaign,
   list,
   get,
   create,

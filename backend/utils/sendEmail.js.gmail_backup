@@ -1,51 +1,36 @@
-const nodemailer = require("nodemailer");
+const { Resend } = require("resend");
 
-let smtpTransporter = null;
+let resendClient = null;
 
-const getSmtpTransporter = () => {
-  if (!process.env.SMTP_USER || !process.env.SMTP_PASS) return null;
-
-  if (!smtpTransporter) {
-    smtpTransporter = nodemailer.createTransport({
-      host: process.env.SMTP_HOST || "smtp.gmail.com",
-      port: Number(process.env.SMTP_PORT || 465),
-      secure: String(process.env.SMTP_SECURE || "true") === "true",
-      auth: {
-        user: process.env.SMTP_USER,
-        pass: process.env.SMTP_PASS,
-      },
-    });
+const getResend = () => {
+  if (!process.env.RESEND_API_KEY) return null;
+  if (!resendClient) {
+    resendClient = new Resend(process.env.RESEND_API_KEY);
   }
-
-  return smtpTransporter;
+  return resendClient;
 };
 
 const sendEmail = async ({ to, subject, html, text }) => {
-  const transporter = getSmtpTransporter();
+  const client = getResend();
 
-  if (!transporter) {
+  if (!client) {
     if (process.env.NODE_ENV !== "test") {
-      console.info(`[email:skipped] SMTP credentials not set. ${subject} -> ${to}`);
+      console.info(`[email:skipped] RESEND_API_KEY not set. ${subject} -> ${to}`);
     }
     return { skipped: true };
   }
 
   try {
-    const from =
-      process.env.EMAIL_FROM ||
-      `UptoSkills SalesForge <${process.env.SMTP_USER}>`;
+    const from = process.env.EMAIL_FROM || "SalesForge <onboarding@resend.dev>";
+    const frontendUrl = (process.env.FRONTEND_URL || "http://localhost:5173").replace(/\/$/, "");
 
-    const frontendUrl = (
-      process.env.FRONTEND_URL || "http://localhost:5173"
-    ).replace(/\/$/, "");
-
-    const info = await transporter.sendMail({
+    const { error } = await client.emails.send({
       from,
       to,
       subject,
       html,
       text: text || subject,
-      replyTo: "support@salesforge.app",
+      reply_to: "support@salesforge.app",
       headers: {
         "List-Unsubscribe": `<${frontendUrl}/notifications-prefs>`,
         "List-Unsubscribe-Post": "List-Unsubscribe=One-Click",
@@ -53,19 +38,20 @@ const sendEmail = async ({ to, subject, html, text }) => {
       },
     });
 
-    return {
-      skipped: false,
-      messageId: info.messageId,
-    };
-  } catch (err) {
-    if (process.env.NODE_ENV !== "test") {
-      console.warn(`[email:error] ${subject} -> ${to}: ${err.message}`);
+    if (error) {
+      if (process.env.NODE_ENV !== "test") {
+        console.warn(`[email:error] ${subject} -> ${to}: ${error.message}`);
+      }
+      return { skipped: true, error: error.message };
     }
 
-    if (
-      process.env.NODE_ENV === "production" &&
-      process.env.EMAIL_FAIL_HARD !== "false"
-    ) {
+    return { skipped: false };
+  } catch (err) {
+    if (process.env.NODE_ENV !== "test") {
+      console.warn(`[email:fallback] ${subject} -> ${to}: ${err.message}`);
+    }
+
+    if (process.env.NODE_ENV === "production" && process.env.EMAIL_FAIL_HARD !== "false") {
       throw err;
     }
 
