@@ -443,7 +443,6 @@ export const campaignService = {
   update: (id, data) => unwrap(api.patch(`/campaigns/${id}`, data)),
   remove: (id) => unwrap(api.delete(`/campaigns/${id}`)),
   launch: (id) => unwrap(api.post(`/campaigns/${id}/launch`)),
-  test: (id, email) => unwrap(api.post(`/campaigns/${id}/test`, { email })),
   pause: (id) => unwrap(api.post(`/campaigns/${id}/pause`)),
   resume: (id) => unwrap(api.post(`/campaigns/${id}/resume`)),
   stop: (id) => unwrap(api.post(`/campaigns/${id}/stop`)),

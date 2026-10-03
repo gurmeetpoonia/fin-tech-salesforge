@@ -26,13 +26,19 @@ const Campaigns = () => {
   const [editingId, setEditingId] = useState(null);
   const [tags, setTags] = useState([]);
   const [segments, setSegments] = useState([]);
-  const [testCampaignId, setTestCampaignId] = useState(null);
-  const [testEmail, setTestEmail] = useState("");
-  const [testSending, setTestSending] = useState(false);
+
+  const toLocalDateTimeInput = (value) => {
+    if (!value) return "";
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return "";
+    const pad = (n) => String(n).padStart(2, "0");
+    return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
+  };
 
   const [draft, setDraft] = useState({
     name: "",
     audience: { type: "all" },
+    schedule: "",
     steps: [
       {
         day: 0,
@@ -115,11 +121,21 @@ const Campaigns = () => {
     e.preventDefault();
 
     try {
+      if (!draft.schedule) {
+        toast.error("Please select a campaign date and time.");
+        return;
+      }
+
+      const payload = {
+        ...draft,
+        schedule: new Date(draft.schedule).toISOString(),
+      };
+
       if (editingId) {
-        await campaignService.update(editingId, draft);
+        await campaignService.update(editingId, payload);
         toast.success("Campaign updated");
       } else {
-        await campaignService.create(draft);
+        await campaignService.create(payload);
         toast.success("Campaign created");
       }
 
@@ -129,6 +145,7 @@ const Campaigns = () => {
       setDraft({
         name: "",
         audience: { type: "all" },
+        schedule: "",
         steps: [
           {
             day: 0,
@@ -151,22 +168,6 @@ const Campaigns = () => {
       load();
     } catch (err) {
       toast.error(err?.message || "Launch failed");
-    }
-  };
-
-  const handleTestCampaign = async (e) => {
-    e.preventDefault();
-    if (!testCampaignId || !testEmail.trim()) return;
-    setTestSending(true);
-    try {
-      await campaignService.test(testCampaignId, testEmail.trim());
-      toast.success(`Test email sent to ${testEmail.trim()}`);
-      setTestCampaignId(null);
-      setTestEmail("");
-    } catch (err) {
-      toast.error(err?.message || "Test email failed");
-    } finally {
-      setTestSending(false);
     }
   };
 
@@ -228,6 +229,7 @@ const Campaigns = () => {
     setDraft({
       name: campaign.name || "",
       audience,
+      schedule: toLocalDateTimeInput(campaign.conditions?.schedule),
       steps: campaign.conditions?.steps || [
         {
           day: 0,
@@ -261,6 +263,7 @@ const Campaigns = () => {
                   <div className="font-medium">{c.name}</div>
                   <div className="text-xs text-slate-500">
                     {renderAudienceLabel(c.conditions?.audience)} ·{" "}
+                    {c.conditions?.schedule ? `${new Date(c.conditions.schedule).toLocaleString()}` : "No schedule"} ·{" "}
                     {c.conditions?.steps?.length
                       ? `${c.conditions.steps.length} step${c.conditions.steps.length > 1 ? "s" : ""}`
                       : c.conditions?.subject || "—"}
@@ -270,9 +273,11 @@ const Campaigns = () => {
                   <UptoBadge>
                     {c.conditions?.status === "paused"
                       ? "Paused"
-                      : c.active
-                        ? "Running"
-                        : "Draft"}
+                      : c.conditions?.status === "scheduled"
+                        ? "Scheduled"
+                        : c.active
+                          ? "Running"
+                          : "Draft"}
                   </UptoBadge>
 
                   {c.conditions?.status === "paused" ? (
@@ -303,13 +308,6 @@ const Campaigns = () => {
 
                   <UptoButton
                     variant="ghost"
-                    onClick={() => { setTestCampaignId(c.id); setTestEmail(""); }}
-                  >
-                    Test Campaign
-                  </UptoButton>
-
-                  <UptoButton
-                    variant="ghost"
                     onClick={() => handleEdit(c)}
                   >
                     Edit
@@ -327,42 +325,6 @@ const Campaigns = () => {
           </div>
         )}
       </UptoCard>
-
-      {testCampaignId && (
-        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
-          <form
-            onSubmit={handleTestCampaign}
-            className="bg-white dark:bg-slate-900 rounded-2xl p-6 max-w-md w-full"
-          >
-            <h3 className="text-lg font-semibold mb-2">Test Campaign</h3>
-            <p className="text-sm text-slate-500 mb-4">
-              Sends only the first campaign step to this email. It will not enroll or message any leads.
-            </p>
-            <UptoInput
-              label="Test email address"
-              type="email"
-              value={testEmail}
-              onChange={(e) => setTestEmail(e.target.value)}
-              placeholder="you@example.com"
-              required
-              autoFocus
-            />
-            <div className="mt-4 flex justify-end gap-2">
-              <UptoButton
-                type="button"
-                variant="ghost"
-                onClick={() => { setTestCampaignId(null); setTestEmail(""); }}
-                disabled={testSending}
-              >
-                Cancel
-              </UptoButton>
-              <UptoButton type="submit" disabled={testSending}>
-                {testSending ? "Sending..." : "Send Test Email"}
-              </UptoButton>
-            </div>
-          </form>
-        </div>
-      )}
 
       {showCreate && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
@@ -467,6 +429,15 @@ const Campaigns = () => {
                   </div>
                 )}
               </div>
+
+              <UptoInput
+                label="Campaign Start Date & Time"
+                type="datetime-local"
+                min={new Date().toISOString().slice(0, 16)}
+                value={draft.schedule || ""}
+                onChange={(e) => setDraft({ ...draft, schedule: e.target.value })}
+                required
+              />
 
               <div className="space-y-4">
                 <div className="flex items-center justify-between">

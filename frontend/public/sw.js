@@ -1,5 +1,5 @@
 // SalesForge service worker for offline shell and asset caching.
-const CACHE = "salesforge-v1";
+const CACHE = "salesforge-v2";
 const ASSETS = ["/", "/dashboard", "/leads", "/deals", "/manifest.webmanifest"];
 
 self.addEventListener("install", (event) => {

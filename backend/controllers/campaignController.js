@@ -92,6 +92,7 @@ const update = asyncHandler(async (req, res) => {
   segment,
   content,
   budget,
+  schedule,
   } = req.body;
   const campaign = await prisma.workflow.findFirst({ where: { id: Number(req.params.id), orgId: req.orgId } });
   if (!campaign) throw new AppError("Campaign not found.", 404);
@@ -124,6 +125,18 @@ const update = asyncHandler(async (req, res) => {
   if (audience !== undefined)
     existingConditions.audience = audience;
   data.conditions = existingConditions;
+  }
+  if (schedule !== undefined) {
+    const scheduledAt = schedule ? new Date(schedule) : null;
+    if (schedule && (!scheduledAt || Number.isNaN(scheduledAt.getTime()))) {
+      throw new AppError("A valid campaign schedule date and time is required.", 400);
+    }
+    const existingConditions =
+      (typeof campaign.conditions === "object" && campaign.conditions)
+        ? campaign.conditions
+        : {};
+    existingConditions.schedule = scheduledAt ? scheduledAt.toISOString() : null;
+    data.conditions = existingConditions;
   }
   if (content !== undefined) data.actions = content;
   await prisma.workflow.update({ where: { id: campaign.id }, data });
@@ -162,6 +175,15 @@ const launch = asyncHandler(async (req, res) => {
   const subject = conditions.subject || "";
   const body = conditions.body || "";
   const audience = conditions.audience || "all";
+  const scheduledAt = conditions.schedule ? new Date(conditions.schedule) : null;
+
+  if (!scheduledAt || Number.isNaN(scheduledAt.getTime())) {
+    throw new AppError("A valid campaign schedule date and time is required.", 400);
+  }
+
+  if (scheduledAt.getTime() < Date.now()) {
+    throw new AppError("Campaign schedule must be in the future.", 400);
+  }
 
   const campaignSteps = Array.isArray(conditions.steps)
   ? conditions.steps
@@ -219,34 +241,6 @@ const launch = asyncHandler(async (req, res) => {
   },
 });
 
-  // Schedule the first step from its configured day/time instead of always
-  // sending immediately when the campaign is launched.
-  const startedAt = new Date();
-  const firstStep = campaignSteps[0];
-  let firstRunAt = new Date(
-    startedAt.getTime() + Number(firstStep?.day || 0) * 24 * 60 * 60 * 1000
-  );
-
-  if (firstStep?.time) {
-    const [hours, minutes] = String(firstStep.time).split(":").map(Number);
-    if (
-      Number.isInteger(hours) &&
-      Number.isInteger(minutes) &&
-      hours >= 0 &&
-      hours <= 23 &&
-      minutes >= 0 &&
-      minutes <= 59
-    ) {
-      firstRunAt.setHours(hours, minutes, 0, 0);
-    }
-  }
-
-  // If a Day 0 time has already passed today, run it on the next scheduler
-  // tick rather than scheduling it in the past.
-  if (firstRunAt < startedAt) {
-    firstRunAt = startedAt;
-  }
-
   // Create an enrollment for each lead
   for (const lead of leads) {
   await prisma.sequenceEnrollment.create({
@@ -257,7 +251,8 @@ const launch = asyncHandler(async (req, res) => {
       status: "ACTIVE",
       currentStep: 0,
       steps: campaignSteps,
-      nextRunAt: firstRunAt,
+      startedAt: scheduledAt,
+      nextRunAt: scheduledAt,
     },
   });
 }
@@ -265,69 +260,22 @@ const launch = asyncHandler(async (req, res) => {
   await prisma.workflow.update({
   where: { id: campaign.id },
   data: {
-    active: true,
+    active: false,
     conditions: {
       ...conditions,
-      status: "running",
+      status: "scheduled",
+      schedule: scheduledAt.toISOString(),
     },
-    runCount: { increment: 1 },
-    lastRunAt: new Date(),
   },
 });
 
   invalidateCache("/campaigns");
 
   return response.success(res, {
-    message: "Campaign launched.",
+    message: "Campaign scheduled.",
+    scheduledAt: scheduledAt.toISOString(),
     enrolled: leads.length,
   });
-});
-
-const test = asyncHandler(async (req, res) => {
-  const campaign = await prisma.workflow.findFirst({
-    where: { id: Number(req.params.id), orgId: req.orgId },
-  });
-
-  if (!campaign) throw new AppError("Campaign not found.", 404);
-
-  const testEmail = String(req.body?.email || "").trim();
-  if (!testEmail || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(testEmail)) {
-    throw new AppError("A valid test email address is required.", 400);
-  }
-
-  const conditions =
-    typeof campaign.conditions === "object" && campaign.conditions
-      ? campaign.conditions
-      : {};
-  const firstStep = Array.isArray(conditions.steps) && conditions.steps.length
-    ? conditions.steps[0]
-    : { subject: conditions.subject || "", body: conditions.body || "" };
-
-  if (!firstStep.subject) throw new AppError("Campaign subject is required.", 400);
-  if (!firstStep.body) throw new AppError("Campaign email body is required.", 400);
-
-  const { send } = require("../services/emailService");
-  const sent = await send({
-    to: testEmail,
-    subject: `[TEST] ${firstStep.subject}`,
-    html: firstStep.body,
-    text: String(firstStep.body).replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").trim(),
-  });
-
-  if (!sent) {
-    throw new AppError("Test email could not be sent. Check SMTP configuration.", 503);
-  }
-
-  await recordAudit({
-    userId: req.user.id,
-    orgId: req.orgId,
-    action: "campaign.test_email",
-    entityType: "Campaign",
-    entityId: campaign.id,
-    metadata: { testEmail },
-  });
-
-  return response.success(res, { message: "Test email sent.", to: testEmail });
 });
 
 const pause = asyncHandler(async (req, res) => {
@@ -574,7 +522,6 @@ module.exports = {
   pause,
   resume,
   stop,
-  test,
   metrics,
   CAMPAIGN_STATUSES,
   CAMPAIGN_TYPES

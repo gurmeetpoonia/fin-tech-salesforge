@@ -15,7 +15,6 @@ router.post("/", permit("OWNER", "ADMIN"), ctrl.create);
 router.patch("/:id", permit("OWNER", "ADMIN"), ctrl.update);
 router.delete("/:id", permit("OWNER", "ADMIN"), ctrl.remove);
 router.post("/:id/launch", permit("OWNER", "ADMIN"), ctrl.launch);
-router.post("/:id/test", permit("OWNER", "ADMIN"), ctrl.test);
 router.post("/:id/pause", permit("OWNER", "ADMIN"), ctrl.pause);
 router.post("/:id/resume", permit("OWNER", "ADMIN"), ctrl.resume);
 router.post("/:id/stop", permit("OWNER","ADMIN"), ctrl.stop);

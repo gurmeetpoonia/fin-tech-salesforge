@@ -42,24 +42,29 @@ const tasks = {
     if (leads.length) logger.info("job.followup", { count: leads.length });
   },
   async processSequenceEnrollments() {
-    const now = new Date();
+    const BATCH_SIZE = Math.max(1, Number(process.env.CAMPAIGN_EMAIL_BATCH_SIZE || 100));
+    let totalProcessed = 0;
 
-    const enrollments = await prisma.sequenceEnrollment.findMany({
-  where: {
-    status: "ACTIVE",
-    nextRunAt: {
-      lte: now,
-    },
-  },
-  take: 50,
-  include: {
-    sequence: {
-      select: { orgId: true },
-    },
-  },
-});
+    // Process due enrollments in batches until the queue is empty.
+    // BATCH_SIZE is only an internal safety/rate-control batch size; it is NOT a campaign recipient limit.
+    while (true) {
+      const now = new Date();
 
-    for (const enrollment of enrollments) {
+      const enrollments = await prisma.sequenceEnrollment.findMany({
+        where: {
+          status: "ACTIVE",
+          nextRunAt: { lte: now },
+        },
+        orderBy: { id: "asc" },
+        take: BATCH_SIZE,
+        include: {
+          sequence: { select: { orgId: true } },
+        },
+      });
+
+      if (enrollments.length === 0) break;
+
+      for (const enrollment of enrollments) {
 
       try {
 
@@ -293,10 +298,15 @@ try {
       }
     }
 
-    if (enrollments.length) {
-      logger.info("job.sequence", {
+      totalProcessed += enrollments.length;
+      logger.info("job.sequence.batch", {
         count: enrollments.length,
+        totalProcessed,
       });
+    }
+
+    if (totalProcessed) {
+      logger.info("job.sequence", { count: totalProcessed });
     }
   },
   // Daily at 02:00: log a snapshot of platform metrics.
