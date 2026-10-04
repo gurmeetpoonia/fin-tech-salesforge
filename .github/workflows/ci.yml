@@ -50,6 +50,13 @@ jobs:
           DATABASE_URL: postgresql://postgres:postgres1234@localhost:5432/salesforge_test
           DIRECT_URL: postgresql://postgres:postgres1234@localhost:5432/salesforge_test
         run: npx prisma db push --skip-generate --accept-data-loss
+      - name: Generate Prisma client
+        working-directory: backend
+        env:
+          DATABASE_URL: postgresql://postgres:postgres1234@localhost:5432/salesforge_test
+          DIRECT_URL: postgresql://postgres:postgres1234@localhost:5432/salesforge_test
+        run: npx prisma generate
+
       - name: Seed database
         working-directory: backend
         env:
