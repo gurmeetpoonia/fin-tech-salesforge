@@ -371,8 +371,6 @@ const stats = asyncHandler(async (req, res) => {
   });
 });
 
-  enrollLeadInActiveCampaigns(updated, req.orgId, req.user.id).catch((error) => {
-    console.error("Failed to auto-enroll lead into campaigns:", error);
-  });
+ 
 
 module.exports = { createLead, getLeads, getLeadById, updateLead, deleteLead, bulkUpdate, bulkDelete, stats, buildLeadWhere };

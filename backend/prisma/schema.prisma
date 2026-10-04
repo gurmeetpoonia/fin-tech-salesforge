@@ -747,7 +747,6 @@ model Sequence {
   updatedAt   DateTime       @updatedAt
 
   enrollments SequenceEnrollment[]
-
   org      Organization? @relation(fields: [orgId], references: [id], onDelete: Cascade)
   user     User          @relation(fields: [userId], references: [id], onDelete: Cascade)
   workflow Workflow?     @relation(fields: [workflowId], references: [id], onDelete: Cascade)
