@@ -8,6 +8,7 @@ const { AppError } = require("../middleware/errorHandler");
 const { recordAudit } = require("../services/auditService");
 const { incrementUsage, enforcePlanLimit } = require("../services/usageService");
 const { publish } = require("../services/webhookService");
+const { enrollLeadInActiveCampaigns } = require("../services/campaignAutomationService");
 
 const LEAD_INCLUDE = {
   addedBy: { select: { id: true, name: true, email: true } },
@@ -93,6 +94,11 @@ const createLead = asyncHandler(async (req, res) => {
   });
   // await updateLeadScore(lead.id);
   const updated = await prisma.lead.findUnique({ where: { id: lead.id }, include: LEAD_INCLUDE });
+
+  // Automatically enroll new leads into active campaigns without blocking lead creation.
+  enrollLeadInActiveCampaigns(updated, req.orgId, req.user.id).catch((error) => {
+    console.error("Failed to auto-enroll lead into campaigns:", error);
+  });
   
   // ---------------------------------------------------------------------------
   // NOTIFICATION: Always notify the AUTHENTICATED USER who triggered this event.
@@ -364,5 +370,9 @@ const stats = asyncHandler(async (req, res) => {
     topScored,
   });
 });
+
+  enrollLeadInActiveCampaigns(updated, req.orgId, req.user.id).catch((error) => {
+    console.error("Failed to auto-enroll lead into campaigns:", error);
+  });
 
 module.exports = { createLead, getLeads, getLeadById, updateLead, deleteLead, bulkUpdate, bulkDelete, stats, buildLeadWhere };

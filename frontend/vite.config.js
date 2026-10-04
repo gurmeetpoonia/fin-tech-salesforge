@@ -33,6 +33,12 @@ export default defineConfig({
     host: "0.0.0.0",
     port: 5173,
     allowedHosts: [".loca.lt", ".trycloudflare.com"],
+    proxy: {
+      "/api": {
+        target: process.env.VITE_DEV_API_PROXY || "http://localhost:3000",
+        changeOrigin: true,
+      },
+    },
     hmr: {
       host: "localhost",
     },

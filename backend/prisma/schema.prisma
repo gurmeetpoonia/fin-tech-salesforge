@@ -7,6 +7,7 @@ datasource db {
   provider  = "postgresql"
   url       = env("DATABASE_URL")
   directUrl = env("DIRECT_URL")
+  shadowDatabaseUrl = env("SHADOW_DATABASE_URL")
 }
 
 model User {
@@ -137,6 +138,7 @@ model Organization {
   webhooks                Webhook[]
   winLossRecords          WinLossRecord[]
   workflows               Workflow[]
+  sequenceEnrollments     SequenceEnrollment[]
 
   @@map("organizations")
 }
@@ -732,19 +734,23 @@ model EmailTemplate {
 }
 
 model Sequence {
-  id          Int                  @id @default(autoincrement())
+  id          Int            @id @default(autoincrement())
   orgId       Int?
   userId      Int
+  workflowId  Int?           @unique
   name        String
   description String?
-  status      SequenceStatus       @default(DRAFT)
+  status      SequenceStatus @default(DRAFT)
   steps       Json
   metrics     Json?
-  createdAt   DateTime             @default(now())
-  updatedAt   DateTime             @updatedAt
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
+
   enrollments SequenceEnrollment[]
-  org         Organization?        @relation(fields: [orgId], references: [id], onDelete: Cascade)
-  user        User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  org      Organization? @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  user     User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  workflow Workflow?     @relation(fields: [workflowId], references: [id], onDelete: Cascade)
 
   @@index([orgId])
   @@map("sequences")
@@ -752,6 +758,7 @@ model Sequence {
 
 model SequenceEnrollment {
   id          Int              @id @default(autoincrement())
+  orgId       Int?
   sequenceId  Int
   contactId   Int?
   leadId      Int?
@@ -764,10 +771,15 @@ model SequenceEnrollment {
   completedAt DateTime?
   createdAt   DateTime         @default(now())
   updatedAt   DateTime         @updatedAt
-  sequence    Sequence         @relation(fields: [sequenceId], references: [id], onDelete: Cascade)
 
+  sequence Sequence      @relation(fields: [sequenceId], references: [id], onDelete: Cascade)
+  org      Organization? @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  @@unique([sequenceId, leadId])
   @@index([sequenceId, status])
   @@index([nextRunAt])
+  @@index([orgId])
+  @@index([leadId])
   @@map("sequence_enrollments")
 }
 
@@ -785,9 +797,12 @@ model Workflow {
   lastRunAt   DateTime?
   createdAt   DateTime        @default(now())
   updatedAt   DateTime        @updatedAt
-  runs        WorkflowRun[]
-  org         Organization?   @relation(fields: [orgId], references: [id], onDelete: Cascade)
-  user        User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  runs     WorkflowRun[]
+  sequence Sequence?
+
+  org  Organization? @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  user User          @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([orgId, trigger])
   @@index([active])

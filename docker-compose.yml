@@ -1,0 +1,61 @@
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: salesforge
+      POSTGRES_USER: salesforge
+      POSTGRES_PASSWORD: salesforge
+    ports:
+      - "5432:5432"
+    volumes:
+      - salesforge_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U salesforge -d salesforge"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - salesforge_redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  backend:
+    build: ./backend
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      DATABASE_URL: postgresql://salesforge:salesforge@db:5432/salesforge?schema=public
+      DIRECT_URL: postgresql://salesforge:salesforge@db:5432/salesforge?schema=public
+      SHADOW_DATABASE_URL: postgresql://salesforge:salesforge@db:5432/salesforge?schema=public
+      REDIS_URL: redis://redis:6379
+      JWT_SECRET: change-this-secret-before-production
+      FRONTEND_URL: http://localhost:8080
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    command: ["sh", "-c", "npx prisma db push && node server.js"]
+
+  frontend:
+    build: ./frontend
+    restart: unless-stopped
+    ports:
+      - "8080:80"
+    depends_on:
+      - backend
+
+volumes:
+  salesforge_pgdata:
+  salesforge_redisdata:

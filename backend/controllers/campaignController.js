@@ -5,6 +5,7 @@ const asyncHandler = require("../utils/asyncHandler");
 const response = require("../utils/response");
 const { recordAudit } = require("../services/auditService");
 const { invalidateCache } = require("../utils/cache");
+const { leadMatchesAudience } = require("../services/campaignAutomationService");
 
 // Campaigns are stored using the existing Workflow model with JSON metadata.
 // This provides full campaign management without new schema.
@@ -342,20 +343,51 @@ const activateCampaign = async ({
     };
   }
 
-  const sequence = await prisma.sequence.create({
-    data: {
-      orgId,
-      userId,
-      name: `Campaign: ${campaign.name}`,
-      description: campaign.description || null,
-      status: "ACTIVE",
-      steps: campaignSteps,
+  // One sequence belongs to one campaign workflow.
+  // Reuse an existing legacy sequence when possible; otherwise create the relation.
+  let sequence = await prisma.sequence.findFirst({
+    where: {
+      OR: [
+        { workflowId: campaign.id },
+        {
+          orgId,
+          name: `Campaign: ${campaign.name}`,
+        },
+      ],
     },
   });
+
+  if (sequence) {
+    sequence = await prisma.sequence.update({
+      where: { id: sequence.id },
+      data: {
+        workflowId: campaign.id,
+        orgId,
+        userId,
+        name: `Campaign: ${campaign.name}`,
+        description: campaign.description || null,
+        status: "ACTIVE",
+        steps: campaignSteps,
+      },
+    });
+  } else {
+    sequence = await prisma.sequence.create({
+      data: {
+        orgId,
+        userId,
+        workflowId: campaign.id,
+        name: `Campaign: ${campaign.name}`,
+        description: campaign.description || null,
+        status: "ACTIVE",
+        steps: campaignSteps,
+      },
+    });
+  }
 
   for (const lead of leads) {
     await prisma.sequenceEnrollment.create({
       data: {
+        orgId,
         sequenceId: sequence.id,
         leadId: lead.id,
         email: lead.email,

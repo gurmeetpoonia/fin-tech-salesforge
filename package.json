@@ -14,7 +14,9 @@
     "lint:frontend": "npm --prefix frontend run lint",
     "test:backend": "npm --prefix backend test",
     "prisma:generate": "npm --prefix backend run prisma:generate",
-    "prisma:seed": "npm --prefix backend run prisma:seed"
+    "prisma:seed": "npm --prefix backend run prisma:seed",
+    "db:push": "npm --prefix backend run db:push",
+    "db:status": "npm --prefix backend exec prisma migrate status"
   },
   "engines": {
     "node": ">=20"
