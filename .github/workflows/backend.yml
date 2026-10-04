@@ -74,6 +74,9 @@ jobs:
 
       - name: Run Prisma format check
         working-directory: backend
+        env:
+          DATABASE_URL: postgresql://postgres:postgres1234@localhost:5432/salesforge_test
+          DIRECT_URL: postgresql://postgres:postgres1234@localhost:5432/salesforge_test
         run: npx prisma format --check || npx prisma format
 
       - name: Validate Prisma schema
