@@ -281,6 +281,7 @@ model Lead {
   notes           LeadNote[]
   tags            LeadTag[]
   tasks           LeadTask[]
+  sequenceEnrollments SequenceEnrollment[]
   addedBy         User?          @relation("AddedByUser", fields: [addedById], references: [id])
   assignedTo      User?          @relation("AssignedToUser", fields: [assignedToId], references: [id])
   org             Organization?  @relation(fields: [orgId], references: [id])
@@ -773,6 +774,7 @@ model SequenceEnrollment {
 
   sequence Sequence      @relation(fields: [sequenceId], references: [id], onDelete: Cascade)
   org      Organization? @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  lead        Lead?            @relation(fields: [leadId], references: [id], onDelete: Cascade)
 
   @@unique([sequenceId, leadId])
   @@index([sequenceId, status])
