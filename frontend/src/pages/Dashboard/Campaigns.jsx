@@ -63,20 +63,26 @@ const Campaigns = () => {
     }
   };
 
-  const load = async () => {
-    setLoading(true);
-    try {
-      const res = await campaignService.list({ limit: 100 });
-      setItems(res?.items || res || []);
-      setError(null);
-    } catch (e) { setError(e?.message || "Failed to load"); }
-    finally { setLoading(false); }
-  };
+  const load = async (silent = false) => {
+  if (!silent) setLoading(true);
+  try {
+    const res = await campaignService.list({ limit: 100 });
+    setItems(res?.items || res || []);
+    setError(null);
+  } catch (e) { setError(e?.message || "Failed to load"); }
+  finally { if (!silent) setLoading(false); }
+};
 
-  useEffect(() => {
-    load();
-    loadMetaData();
-  }, []);
+ useEffect(() => {
+  load();
+  loadMetaData();
+
+  const interval = setInterval(() => {
+    load(true);
+  }, 15000); // every 15 seconds
+
+  return () => clearInterval(interval);
+}, []);
 
   const handleAudienceTypeChange = (type) => {
     if (type === "all") {
