@@ -407,16 +407,16 @@ const enrollLeadInActiveCampaigns = async (
     });
 
     /**
-     * If no running campaign exists,
-     * create the default All Leads campaign.
+     * If no campaign is currently running, do not create a new campaign.
+     * New leads should only be enrolled into campaigns that were already
+     * launched and are still running.
      */
     if (campaigns.length === 0) {
-      const defaultCampaign = await createDefaultCampaign(
-        orgId,
-        userId
-      );
-
-      campaigns = [defaultCampaign];
+      return {
+        enrolled: 0,
+        skipped: 0,
+        campaignsChecked: 0,
+      };
     }
 
     let enrolled = 0;
