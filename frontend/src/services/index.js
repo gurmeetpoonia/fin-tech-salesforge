@@ -447,6 +447,7 @@ export const campaignService = {
   resume: (id) => unwrap(api.post(`/campaigns/${id}/resume`)),
   stop: (id) => unwrap(api.post(`/campaigns/${id}/stop`)),
   metrics: () => unwrap(api.get("/campaigns/metrics")),
+  getLeads: (id) => unwrap(api.get(`/campaigns/${id}/leads`)),
 };
 
 export const kbService = {

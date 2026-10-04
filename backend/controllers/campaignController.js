@@ -681,6 +681,59 @@ const metrics = asyncHandler(async (req, res) => {
   });
 });
 
+const getEnrolledLeads = asyncHandler(async (req, res) => {
+  const campaign = await prisma.workflow.findFirst({
+    where: { id: Number(req.params.id), orgId: req.orgId },
+  });
+  if (!campaign) throw new AppError("Campaign not found.", 404);
+
+  const sequence = await prisma.sequence.findFirst({
+    where: {
+      OR: [
+        { workflowId: campaign.id },
+        { orgId: req.orgId, name: `Campaign: ${campaign.name}` },
+      ],
+    },
+  });
+
+  if (!sequence) {
+    return response.success(res, { campaignName: campaign.name, leads: [] });
+  }
+
+  const enrollments = await prisma.sequenceEnrollment.findMany({
+    where: { sequenceId: sequence.id },
+    orderBy: { createdAt: "desc" },
+  });
+
+  const leadIds = enrollments.map((e) => e.leadId).filter(Boolean);
+  const leads = leadIds.length
+    ? await prisma.lead.findMany({
+        where: { id: { in: leadIds } },
+        select: { id: true, name: true, email: true, status: true, companyName: true },
+      })
+    : [];
+  const leadById = new Map(leads.map((l) => [l.id, l]));
+
+  const result = enrollments.map((enrollment) => {
+    const lead = enrollment.leadId ? leadById.get(enrollment.leadId) : null;
+    return {
+      enrollmentId: enrollment.id,
+      leadId: enrollment.leadId,
+      name: lead?.name || null,
+      email: enrollment.email,
+      companyName: lead?.companyName || null,
+      leadStatus: lead?.status || null,
+      enrollmentStatus: enrollment.status,
+      currentStep: enrollment.currentStep,
+      totalSteps: Array.isArray(enrollment.steps) ? enrollment.steps.length : 0,
+      startedAt: enrollment.startedAt,
+      completedAt: enrollment.completedAt,
+    };
+  });
+
+  return response.success(res, { campaignName: campaign.name, leads: result });
+});
+
 module.exports = {
   activateCampaign,
   list,
@@ -693,6 +746,7 @@ module.exports = {
   resume,
   stop,
   metrics,
+  getEnrolledLeads,
   CAMPAIGN_STATUSES,
   CAMPAIGN_TYPES
 };

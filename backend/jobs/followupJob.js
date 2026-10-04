@@ -132,15 +132,40 @@ const tasks = {
           });
           continue;
         }
+        function personalizeTemplate(template, lead, firstName) {
+          if (!template) return "";
+
+          const variables = {
+            first_name: firstName || "there",
+            name: lead?.name || firstName || "there",
+            email: lead?.email || "",
+            companyName: lead?.companyName || "",
+            jobTitle: lead?.jobTitle || "",
+            industry: lead?.industry || "",
+            location: lead?.location || "",
+          };
+
+          return template.replace(
+            /{{\s*([^}]+?)\s*}}/gi,
+            (match, key) => {
+              const normalizedKey = key.trim().toLowerCase();
+
+              return Object.prototype.hasOwnProperty.call(variables, normalizedKey)
+                ? variables[normalizedKey]
+                : match;
+            }
+          );
+        }
 
      let firstName = "there";
-let lead = null;
+     let lead = null;
 
 if (enrollment.leadId) {
   lead = await prisma.lead.findUnique({
   where: { id: enrollment.leadId },
   select: {
     name: true,
+    email: true,
     companyName: true,
     jobTitle: true,
     industry: true,
@@ -153,8 +178,9 @@ if (enrollment.leadId) {
           }
         }
 
-        let body = currentStep.body.replace(
-  /{{first_name}}/gi,
+       let body = personalizeTemplate(
+  currentStep.body,
+  lead,
   firstName
 );
 
@@ -204,11 +230,16 @@ try {
         );
 
         const trackedHtml = `${trackedBody}
-<img src="${tracking.openUrl}" width="1" height="1" style="display:none;" alt="" />`;
+            <img src="${tracking.openUrl}" width="1" height="1" style="display:none;" alt="" />`;
 
+        const personalizedSubject = personalizeTemplate(
+            currentStep.subject,
+            lead,
+            firstName
+          );
         const sendResult = await sendEmail({
           to: enrollment.email,
-          subject: currentStep.subject,
+          subject: personalizedSubject,
           html: trackedHtml,
         });
 

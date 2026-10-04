@@ -26,7 +26,9 @@ const Campaigns = () => {
   const [editingId, setEditingId] = useState(null);
   const [tags, setTags] = useState([]);
   const [segments, setSegments] = useState([]);
-
+  const [expandedId, setExpandedId] = useState(null);
+  const [leadsByCampaign, setLeadsByCampaign] = useState({});
+  const [loadingLeads, setLoadingLeads] = useState(false);
   const toLocalDateTimeInput = (value) => {
     if (!value) return "";
     const date = new Date(value);
@@ -233,6 +235,24 @@ const Campaigns = () => {
       toast.error(err?.message || "Delete failed");
     }
   };
+  const toggleLeads = async (campaignId) => {
+  if (expandedId === campaignId) {
+    setExpandedId(null);
+    return;
+  }
+  setExpandedId(campaignId);
+  if (!leadsByCampaign[campaignId]) {
+    setLoadingLeads(true);
+    try {
+      const data = await campaignService.getLeads(campaignId);
+      setLeadsByCampaign((prev) => ({ ...prev, [campaignId]: data.leads || [] }));
+    } catch (err) {
+      toast.error(err?.message || "Failed to load leads");
+    } finally {
+      setLoadingLeads(false);
+    }
+  }
+};
 
   const handleEdit = (campaign) => {
     setEditingId(campaign.id);
@@ -278,72 +298,99 @@ const Campaigns = () => {
         {!loading && !error && items.length > 0 && (
           <div className="space-y-2">
             {items.map((c) => (
-              <div key={c.id} className="p-3 rounded-xl border border-slate-200 dark:border-slate-700 flex items-center justify-between">
-                <div>
-                  <div className="font-medium">{c.name}</div>
-                  <div className="text-xs text-slate-500">
-                    {renderAudienceLabel(c.conditions?.audience)} ·{" "}
-                    {c.conditions?.schedule ? `${new Date(c.conditions.schedule).toLocaleString()}` : "No schedule"} ·{" "}
-                    {c.conditions?.steps?.length
-                      ? `${c.conditions.steps.length} step${c.conditions.steps.length > 1 ? "s" : ""}`
-                      : c.conditions?.subject || "—"}
+              <div key={c.id} className="p-3 rounded-xl border border-slate-200 dark:border-slate-700">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <div className="font-medium">{c.name}</div>
+                    <div className="text-xs text-slate-500">
+                      {renderAudienceLabel(c.conditions?.audience)} ·{" "}
+                      {c.conditions?.schedule ? `${new Date(c.conditions.schedule).toLocaleString()}` : "No schedule"} ·{" "}
+                      {c.conditions?.steps?.length
+                        ? `${c.conditions.steps.length} step${c.conditions.steps.length > 1 ? "s" : ""}`
+                        : c.conditions?.subject || "—"}
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <UptoBadge>
+                      {c.conditions?.status === "paused"
+                        ? "Paused"
+                        : c.conditions?.status === "scheduled"
+                          ? "Scheduled"
+                          : c.conditions?.status === "completed"
+                            ? "Completed"
+                            : c.active
+                              ? "Running"
+                              : "Draft"}
+                    </UptoBadge>
+
+                    {c.conditions?.status === "paused" ? (
+                      <>
+                        <UptoButton variant="ghost" onClick={() => handleResume(c.id)}>
+                          Resume
+                        </UptoButton>
+                        <UptoButton variant="secondary" onClick={() => handleStop(c.id)}>
+                          Stop
+                        </UptoButton>
+                      </>
+                    ) : c.conditions?.status === "cancelled" ? (
+                      <span className="text-sm text-slate-500">Stopped</span>
+                    ) : c.conditions?.status === "completed" ? (
+                      <span className="text-sm text-slate-500">Completed</span>
+                    ) : !c.active ? (
+                      <UptoButton variant="ghost" onClick={() => handleLaunch(c.id)}>
+                        Launch
+                      </UptoButton>
+                    ) : (
+                      <>
+                        <UptoButton variant="secondary" onClick={() => handlePause(c.id)}>
+                          Pause
+                        </UptoButton>
+                        <UptoButton variant="secondary" onClick={() => handleStop(c.id)}>
+                          Stop
+                        </UptoButton>
+                      </>
+                    )}
+
+                    <UptoButton variant="ghost" onClick={() => toggleLeads(c.id)}>
+                      {expandedId === c.id ? "Hide Leads" : "View Leads"}
+                    </UptoButton>
+
+                    <UptoButton
+                      variant="ghost"
+                      onClick={() => handleEdit(c)}
+                    >
+                      Edit
+                    </UptoButton>
+
+                    <UptoButton
+                      variant="danger"
+                      onClick={() => handleDelete(c.id)}
+                    >
+                      Delete
+                    </UptoButton>
                   </div>
                 </div>
-                <div className="flex items-center gap-2">
-                  <UptoBadge>
-                    {c.conditions?.status === "paused"
-                      ? "Paused"
-                      : c.conditions?.status === "scheduled"
-                        ? "Scheduled"
-                        : c.conditions?.status === "completed"
-                          ? "Completed"
-                          : c.active
-                            ? "Running"
-                            : "Draft"}
-                  </UptoBadge>
 
-                  {c.conditions?.status === "paused" ? (
-                    <>
-                      <UptoButton variant="ghost" onClick={() => handleResume(c.id)}>
-                        Resume
-                      </UptoButton>
-                      <UptoButton variant="secondary" onClick={() => handleStop(c.id)}>
-                        Stop
-                      </UptoButton>
-                    </>
-                  ) : c.conditions?.status === "cancelled" ? (
-                    <span className="text-sm text-slate-500">Stopped</span>
-                  ) : c.conditions?.status === "completed" ? (
-                    <span className="text-sm text-slate-500">Completed</span>
-                  ) : !c.active ? (
-                    <UptoButton variant="ghost" onClick={() => handleLaunch(c.id)}>
-                      Launch
-                    </UptoButton>
-                  ) : (
-                    <>
-                      <UptoButton variant="secondary" onClick={() => handlePause(c.id)}>
-                        Pause
-                      </UptoButton>
-                      <UptoButton variant="secondary" onClick={() => handleStop(c.id)}>
-                        Stop
-                      </UptoButton>
-                    </>
-                  )}
-
-                  <UptoButton
-                    variant="ghost"
-                    onClick={() => handleEdit(c)}
-                  >
-                    Edit
-                  </UptoButton>
-
-                  <UptoButton
-                    variant="danger"
-                    onClick={() => handleDelete(c.id)}
-                  >
-                    Delete
-                  </UptoButton>
-                </div>
+                {expandedId === c.id && (
+                  <div className="mt-3 pt-3 border-t border-slate-200 dark:border-slate-700">
+                    {loadingLeads ? (
+                      <UptoSpinner />
+                    ) : (leadsByCampaign[c.id]?.length ? (
+                      <div className="space-y-1">
+                        {leadsByCampaign[c.id].map((l) => (
+                          <div key={l.enrollmentId} className="flex items-center justify-between text-xs py-1">
+                            <span>{l.name || "—"} · {l.email}</span>
+                            <span className="text-slate-500">{l.companyName || "—"}</span>
+                            <UptoBadge>{l.enrollmentStatus}</UptoBadge>
+                            <span className="text-slate-400">Step {l.currentStep + 1}/{l.totalSteps}</span>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="text-xs text-slate-500">No leads enrolled yet.</div>
+                    ))}
+                  </div>
+                )}
               </div>
             ))}
           </div>
