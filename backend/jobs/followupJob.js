@@ -256,58 +256,6 @@ try {
             },
           });
 
-          // Check whether every enrollment in this campaign sequence
-          // has completed its final step.
-          const remainingEnrollments =
-            await prisma.sequenceEnrollment.count({
-              where: {
-                sequenceId: enrollment.sequenceId,
-                status: {
-                  not: "COMPLETED",
-                },
-              },
-            });
-
-          if (remainingEnrollments === 0) {
-            const campaignSequence = await prisma.sequence.findUnique({
-              where: { id: enrollment.sequenceId },
-              select: { name: true },
-            });
-
-            if (campaignSequence?.name?.startsWith("Campaign: ")) {
-              const campaignName =
-                campaignSequence.name.slice("Campaign: ".length);
-
-              const campaign = await prisma.workflow.findFirst({
-                where: {
-                  name: campaignName,
-                },
-                select: {
-                  id: true,
-                  conditions: true,
-                },
-              });
-
-              if (campaign) {
-                const conditions =
-                  campaign.conditions &&
-                  typeof campaign.conditions === "object"
-                    ? campaign.conditions
-                    : {};
-
-                await prisma.workflow.update({
-                  where: { id: campaign.id },
-                  data: {
-                    active: false,
-                    conditions: {
-                      ...conditions,
-                      status: "completed",
-                    },
-                  },
-                });
-              }
-            }
-          }
         } else {
           const nextRunAt = new Date(
             enrollment.startedAt.getTime() +
