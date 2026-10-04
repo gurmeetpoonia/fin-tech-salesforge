@@ -4,6 +4,7 @@ const asyncHandler = require("../utils/asyncHandler");
 const response = require("../utils/response");
 const slugify = require("../utils/slugify");
 const { incrementUsage } = require("../services/usageService");
+const { enrollLeadInActiveCampaigns } = require("../services/campaignAutomationService");
 
 const list = asyncHandler(async (req, res) => {
   const items = await prisma.tag.findMany({
@@ -73,6 +74,10 @@ const attachToLead = asyncHandler(async (req, res) => {
     create: { leadId: lead.id, tagId: tag.id },
     update: {},
   });
+
+  // A tag can change campaign audience membership, so re-check active campaigns.
+  await enrollLeadInActiveCampaigns(lead, req.orgId, req.user.id);
+
   return response.success(res, { message: "Tag attached." });
 });
 

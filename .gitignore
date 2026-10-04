@@ -26,3 +26,14 @@ __pycache__/
 *.pyc
 scraper/venv/
 scraper/.env
+
+
+# Local secrets and dependencies
+.env
+.env.*
+!.env.example
+node_modules/
+__pycache__/
+*.pyc
+*.log
+

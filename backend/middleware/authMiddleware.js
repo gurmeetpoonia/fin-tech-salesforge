@@ -12,7 +12,10 @@ const extractToken = (req) => {
 
 const protect = async (req, res, next) => {
   const token = extractToken(req);
-  console.log("Authorization:", req.headers.authorization);
+  console.log(
+    "Authorization:",
+    req.headers.authorization ? "[REDACTED]" : undefined
+  );
   if (!token) {
     return res.status(401).json({ success: false, message: "Authentication required." });
   }

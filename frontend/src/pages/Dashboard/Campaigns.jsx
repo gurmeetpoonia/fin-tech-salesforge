@@ -120,6 +120,22 @@ const Campaigns = () => {
   const handleCreate = async (e) => {
     e.preventDefault();
 
+    const aud = draft.audience;
+    if (typeof aud === "object") {
+      if (aud.type === "tag" && !aud.tagId) {
+        toast.error("Please select a tag");
+        return;
+      }
+      if (aud.type === "status" && !aud.status) {
+        toast.error("Please select a status");
+        return;
+      }
+      if (aud.type === "segment" && !aud.savedSearchId) {
+        toast.error("Please select a segment");
+        return;
+      }
+    }
+
     try {
       if (!draft.schedule) {
         toast.error("Please select a campaign start date.");
