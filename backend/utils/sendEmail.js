@@ -20,7 +20,7 @@ const getSmtpTransporter = () => {
   return smtpTransporter;
 };
 
-const sendEmail = async ({ to, subject, html, text }) => {
+const sendEmail = async ({ to, subject, html, text, from: requestedFrom }) => {
   const transporter = getSmtpTransporter();
 
   if (!transporter) {
@@ -32,6 +32,7 @@ const sendEmail = async ({ to, subject, html, text }) => {
 
   try {
     const from =
+      requestedFrom ||
       process.env.EMAIL_FROM ||
       `UptoSkills SalesForge <${process.env.SMTP_USER}>`;
 

@@ -32,13 +32,33 @@ const list = asyncHandler(async (req, res) => {
   // Expected audience size is always calculated from the latest campaign
   // conditions, so the pre-launch UI never shows a stale recipient count.
   const enrichedItems = await Promise.all(
-    items.map(async (campaign) => ({
-      ...campaign,
-      expectedLeads: await getCampaignAudienceCount(
-        campaign.conditions?.audience,
+    items.map(async (campaign) => {
+      const conditions =
+        campaign.conditions &&
+        typeof campaign.conditions === "object"
+          ? campaign.conditions
+          : {};
+      const isScheduled = conditions.status === "scheduled" && !campaign.active;
+
+      if (!isScheduled) {
+        return {
+          ...campaign,
+          expectedLeads: null,
+          expectedLeadsPreview: [],
+        };
+      }
+
+      const expectedLeadsPreview = await getMatchingCampaignLeads(
+        conditions.audience,
         req.orgId
-      ),
-    }))
+      );
+
+      return {
+        ...campaign,
+        expectedLeads: expectedLeadsPreview.length,
+        expectedLeadsPreview,
+      };
+    })
   );
 
   return response.paginated(res, enrichedItems, total, page, limit);

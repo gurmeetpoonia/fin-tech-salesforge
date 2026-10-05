@@ -92,6 +92,8 @@ const Campaigns = () => {
       setDraft({ ...draft, audience: { type: "tag", tagId: firstTagId } });
     } else if (type === "status") {
       setDraft({ ...draft, audience: { type: "status", status: "new" } });
+    } else if (type === "score") {
+      setDraft({ ...draft, audience: { type: "score", min: 80, max: "" } });
     } else if (type === "segment") {
       const firstSegId = segments[0]?.id || "";
       setDraft({ ...draft, audience: { type: "segment", savedSearchId: firstSegId } });
@@ -118,6 +120,11 @@ const Campaigns = () => {
       const matchedStatus = LEAD_STATUS_OPTIONS.find((s) => s.value === audienceObj.status);
       return `Status: ${matchedStatus ? matchedStatus.label : audienceObj.status}`;
     }
+    if (audienceObj?.type === "score") {
+      if (audienceObj.min !== "" && audienceObj.max !== "") return `Score: ${audienceObj.min}–${audienceObj.max}`;
+      if (audienceObj.min !== "") return `Score: ≥ ${audienceObj.min}`;
+      return `Score: ≤ ${audienceObj.max}`;
+    }
     if (audienceObj?.type === "segment") {
       const seg = segments.find((s) => s.id === Number(audienceObj.savedSearchId));
       return seg ? `Segment: ${seg.name}` : `Segment #${audienceObj.savedSearchId}`;
@@ -136,6 +143,14 @@ const Campaigns = () => {
       }
       if (aud.type === "status" && !aud.status) {
         toast.error("Please select a status");
+        return;
+      }
+      if (aud.type === "score" && aud.min === "" && aud.max === "") {
+        toast.error("Please provide a score range");
+        return;
+      }
+      if (aud.type === "score" && aud.min !== "" && aud.max !== "" && Number(aud.min) > Number(aud.max)) {
+        toast.error("Minimum score cannot be greater than maximum score");
         return;
       }
       if (aud.type === "segment" && !aud.savedSearchId) {
@@ -247,6 +262,12 @@ const Campaigns = () => {
     }
   };
   const toggleLeads = async (campaignId) => {
+  const campaign = items.find((item) => item.id === campaignId);
+  if (campaign?.conditions?.status === "scheduled" && !campaign.active) {
+    setExpandedId((current) => (current === campaignId ? null : campaignId));
+    return;
+  }
+
   if (expandedId === campaignId) {
     setExpandedId(null);
     return;
@@ -319,9 +340,12 @@ const Campaigns = () => {
                       {c.conditions?.steps?.length
                         ? `${c.conditions.steps.length} step${c.conditions.steps.length > 1 ? "s" : ""}`
                         : c.conditions?.subject || "—"}
-                      {" · "}Expected Leads: {c.expectedLeads ?? 0}
+                      {c.conditions?.status === "scheduled" && !c.active
+                        ? ` · Expected Leads: ${c.expectedLeads ?? 0}`
+                        : ""}
                     </div>
                   </div>
+
                   <div className="flex items-center gap-2">
                     <UptoBadge>
                       {c.conditions?.status === "paused"
@@ -365,9 +389,11 @@ const Campaigns = () => {
                       </>
                     )}
 
-                    <UptoButton variant="ghost" onClick={() => toggleLeads(c.id)}>
-                      {expandedId === c.id ? "Hide Leads" : "View Leads"}
-                    </UptoButton>
+                    {!(c.conditions?.status === "scheduled" && !c.active) && (
+                      <UptoButton variant="ghost" onClick={() => toggleLeads(c.id)}>
+                        {expandedId === c.id ? "Hide Leads" : "View Leads"}
+                      </UptoButton>
+                    )}
 
                     <UptoButton
                       variant="ghost"
@@ -385,6 +411,28 @@ const Campaigns = () => {
                   </div>
                 </div>
 
+                {c.conditions?.status === "scheduled" && !c.active && (
+                  <div className="mt-3 rounded-lg bg-slate-50 dark:bg-slate-800/60 p-3">
+                    <div className="text-xs font-semibold text-slate-600 dark:text-slate-300 mb-2">
+                      Expected leads
+                    </div>
+                    {c.expectedLeadsPreview?.length ? (
+                      <div className="space-y-2">
+                        {c.expectedLeadsPreview.map((lead) => (
+                          <div key={lead.id} className="grid grid-cols-1 sm:grid-cols-4 gap-1 text-xs">
+                            <span className="font-medium">{lead.name || "—"}</span>
+                            <span>{lead.email || "—"}</span>
+                            <span>{lead.companyName || "—"}</span>
+                            <UptoBadge>{lead.status || "—"}</UptoBadge>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="text-xs text-slate-500">No matching leads currently.</div>
+                    )}
+                  </div>
+                )}
+
                 {expandedId === c.id && (
                   <div className="mt-3 pt-3 border-t border-slate-200 dark:border-slate-700">
                     {loadingLeads ? (
@@ -396,7 +444,11 @@ const Campaigns = () => {
                             <span>{l.name || "—"} · {l.email}</span>
                             <span className="text-slate-500">{l.companyName || "—"}</span>
                             <UptoBadge>{l.enrollmentStatus}</UptoBadge>
-                            <span className="text-slate-400">Step {l.currentStep + 1}/{l.totalSteps}</span>
+                            <span className="text-slate-400">
+                              {l.enrollmentStatus === "COMPLETED"
+                                ? `Step ${l.totalSteps}/${l.totalSteps}`
+                                : `Step ${l.currentStep + 1}/${l.totalSteps}`}
+                            </span>
                           </div>
                         ))}
                       </div>
@@ -435,8 +487,9 @@ const Campaigns = () => {
                   onChange={(e) => handleAudienceTypeChange(e.target.value)}
                 >
                   <option value="all">All Leads</option>
-                  <option value="tag">By Tag</option>
                   <option value="status">By Status</option>
+                  <option value="score">By Score</option>
+                  <option value="tag">By Tag</option>
                   <option value="segment">By Saved Segment</option>
                 </select>
 
@@ -463,6 +516,37 @@ const Campaigns = () => {
                         ))}
                       </select>
                     )}
+                  </div>
+                )}
+
+                {(typeof draft.audience === "object" && draft.audience?.type === "score") && (
+                  <div className="mt-2 space-y-2">
+                    <label className="text-xs text-slate-500 mb-1 block">Score range</label>
+                    <div className="grid grid-cols-2 gap-2">
+                      <UptoInput
+                        label="Minimum"
+                        type="number"
+                        min="0"
+                        value={draft.audience?.min ?? ""}
+                        onChange={(e) => setDraft({
+                          ...draft,
+                          audience: { ...draft.audience, min: e.target.value === "" ? "" : Number(e.target.value) },
+                        })}
+                      />
+                      <UptoInput
+                        label="Maximum"
+                        type="number"
+                        min="0"
+                        value={draft.audience?.max ?? ""}
+                        onChange={(e) => setDraft({
+                          ...draft,
+                          audience: { ...draft.audience, max: e.target.value === "" ? "" : Number(e.target.value) },
+                        })}
+                      />
+                    </div>
+                    <div className="text-xs text-slate-500">
+                      Examples: minimum 80 = Score ≥ 80; maximum 50 = Score ≤ 50; both = custom range.
+                    </div>
                   </div>
                 )}
 

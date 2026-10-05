@@ -12,6 +12,44 @@ const logger = require("../utils/logger");
 const { activateCampaign } = require("../controllers/campaignController");
 const { leadMatchesAudience } = require("../services/campaignAutomationService");
 
+const getCampaignAudienceLabel = async (audience, orgId) => {
+  const value =
+    typeof audience === "string"
+      ? { type: audience }
+      : (audience || { type: "all" });
+
+  if (value.type === "status") {
+    const labels = {
+      qualified: "Qualified Leads",
+      new: "New Leads",
+      contacted: "Contacted Leads",
+      in_progress: "In Progress Leads",
+      converted: "Converted Leads",
+      closed: "Closed Leads",
+      lost: "Lost Leads",
+    };
+    return labels[value.status] || `${value.status || "General"} Leads`;
+  }
+
+  if (value.type === "tag" && value.tagId) {
+    const tag = await prisma.tag.findFirst({
+      where: { id: Number(value.tagId), orgId },
+      select: { name: true },
+    });
+    return tag?.name || "Tagged Leads";
+  }
+
+  if (value.type === "segment" && value.savedSearchId) {
+    const segment = await prisma.savedSearch.findFirst({
+      where: { id: Number(value.savedSearchId), resource: "leads", OR: [{ orgId }, { orgId: null }] },
+      select: { name: true },
+    });
+    return segment?.name || "Segment Leads";
+  }
+
+  return "All Leads";
+};
+
 
 let running = false;
 
@@ -235,6 +273,11 @@ if (enrollment.leadId) {
 
 
 try {
+  const audienceLabel = await getCampaignAudienceLabel(
+    campaign.conditions?.audience,
+    enrollment.sequence.orgId
+  );
+
   const personalized = await personalizeCampaignEmail({
     name: lead?.name || firstName,
     company: lead?.companyName || "",
@@ -242,6 +285,7 @@ try {
     industry: lead?.industry || "",
     location: lead?.location || "",
     originalBody: body,
+    audienceLabel,
   });
 
   if (personalized?.output) {
@@ -289,6 +333,7 @@ try {
           to: enrollment.email,
           subject: personalizedSubject,
           html: trackedHtml,
+          from: "uptoskills.salesforge@gmail.com",
         });
 
         if (sendResult.skipped) {

@@ -137,6 +137,19 @@ const buildAudienceLeadWhere = async (audience, orgId) => {
     return leadWhere;
   }
 
+  if (normalizedAudience.type === "score") {
+    const min = normalizedAudience.min !== undefined && normalizedAudience.min !== "" ? Number(normalizedAudience.min) : null;
+    const max = normalizedAudience.max !== undefined && normalizedAudience.max !== "" ? Number(normalizedAudience.max) : null;
+    if (min === null && max === null) return null;
+    if (min !== null && !Number.isFinite(min)) return null;
+    if (max !== null && !Number.isFinite(max)) return null;
+    if (min !== null && max !== null && min > max) return null;
+    leadWhere.score = {};
+    if (min !== null) leadWhere.score.gte = min;
+    if (max !== null) leadWhere.score.lte = max;
+    return leadWhere;
+  }
+
   if (normalizedAudience.type === "segment") {
     const savedSearchId = Number(normalizedAudience.savedSearchId);
     if (!Number.isInteger(savedSearchId) || savedSearchId <= 0) return null;
@@ -193,7 +206,9 @@ const getMatchingCampaignLeads = async (audience, orgId) => {
 
     return leads
       .filter((lead) => matchesSavedSearchFilters(lead, savedSearch.filters))
-      .map(({ id, name, email }) => ({ id, name, email }));
+      .map(({ id, name, email, companyName, jobTitle, industry, status, score }) => ({
+      id, name, email, companyName, jobTitle, industry, status, score,
+    }));
   }
 
   const leadWhere = await buildAudienceLeadWhere(audience, orgId);
@@ -201,7 +216,16 @@ const getMatchingCampaignLeads = async (audience, orgId) => {
 
   return prisma.lead.findMany({
     where: leadWhere,
-    select: { id: true, name: true, email: true },
+    select: {
+      id: true,
+      name: true,
+      email: true,
+      companyName: true,
+      jobTitle: true,
+      industry: true,
+      status: true,
+      score: true,
+    },
   });
 };
 
@@ -437,119 +461,78 @@ const valuesMatch = (leadValue, filterValue) => {
  * If multiple fields exist, ALL conditions must match.
  */
 const matchesSavedSearchFilters = (lead, filters) => {
-  if (!filters || typeof filters !== "object") {
-    return true;
-  }
+  if (!filters || typeof filters !== "object") return true;
 
-  // Some saved searches may store filters inside "conditions"
-  if (Array.isArray(filters.conditions)) {
-    return filters.conditions.every((condition) =>
-      matchesSavedSearchFilters(lead, condition)
+  const evaluateCondition = (condition) => {
+    if (!condition || typeof condition !== "object") return true;
+
+    if (Array.isArray(condition.conditions)) {
+      const logic = String(condition.logic || "AND").toUpperCase();
+      const results = condition.conditions.map(evaluateCondition);
+      return logic === "OR" ? results.some(Boolean) : results.every(Boolean);
+    }
+
+    if (condition.field && condition.operator) {
+      const actual = lead[condition.field];
+      const expected = condition.value;
+      return compareAudienceValue(actual, condition.operator, expected);
+    }
+
+    if (condition.field) {
+      const actual = lead[condition.field];
+      const expected = condition.value;
+      return Array.isArray(expected)
+        ? expected.some((value) => valuesMatch(actual, value))
+        : valuesMatch(actual, expected);
+    }
+
+    const entries = Object.entries(condition).filter(
+      ([key]) => !["id", "name", "resource", "logic", "operator", "conditions"].includes(key)
     );
-  }
 
-  // Common operator format:
-  // { field: "status", operator: "equals", value: "new" }
-  if (filters.field && filters.operator) {
-    const actual = lead[filters.field];
-    const expected = filters.value;
-
-    switch (filters.operator) {
-      case "equals":
-      case "eq":
-        return valuesMatch(actual, expected);
-
-      case "not_equals":
-      case "neq":
-        return !valuesMatch(actual, expected);
-
-      case "contains":
-        if (actual === null || actual === undefined) return false;
-
-        return String(actual)
-          .toLowerCase()
-          .includes(String(expected).toLowerCase());
-
-      case "starts_with":
-        if (actual === null || actual === undefined) return false;
-
-        return String(actual)
-          .toLowerCase()
-          .startsWith(String(expected).toLowerCase());
-
-      case "ends_with":
-        if (actual === null || actual === undefined) return false;
-
-        return String(actual)
-          .toLowerCase()
-          .endsWith(String(expected).toLowerCase());
-
-      default:
-        return valuesMatch(actual, expected);
-    }
-  }
-
-  // Single field/value format
-  if (filters.field) {
-    const field = filters.field;
-    const expected = filters.value;
-    const actual = lead[field];
-
-    if (Array.isArray(expected)) {
-      return expected.some((value) => valuesMatch(actual, value));
-    }
-
-    return valuesMatch(actual, expected);
-  }
-
-  // Direct object:
-  // { status: "new", industry: "Technology" }
-  //
-  // Every defined field must match.
-  const ignoredKeys = [
-    "id",
-    "name",
-    "resource",
-    "logic",
-    "operator",
-    "conditions",
-  ];
-
-  const entries = Object.entries(filters).filter(
-    ([key]) => !ignoredKeys.includes(key)
-  );
-
-  if (entries.length === 0) {
-    return true;
-  }
-
-  return entries.every(([field, expected]) => {
-    const actual = lead[field];
-
-    if (Array.isArray(expected)) {
-      return expected.some((value) => valuesMatch(actual, value));
-    }
-
-    if (
-      expected &&
-      typeof expected === "object" &&
-      !Array.isArray(expected)
-    ) {
-      if (expected.operator) {
-        return matchesSavedSearchFilters(lead, {
-          field,
-          operator: expected.operator,
-          value: expected.value,
-        });
+    return entries.every(([field, expected]) => {
+      const actual = lead[field];
+      if (Array.isArray(expected)) {
+        return expected.some((value) => valuesMatch(actual, value));
       }
-
-      if (expected.value !== undefined) {
-        return valuesMatch(actual, expected.value);
+      if (expected && typeof expected === "object" && !Array.isArray(expected)) {
+        if (expected.operator) {
+          return compareAudienceValue(actual, expected.operator, expected.value);
+        }
+        if (expected.value !== undefined) return valuesMatch(actual, expected.value);
       }
-    }
+      return valuesMatch(actual, expected);
+    });
+  };
 
-    return valuesMatch(actual, expected);
-  });
+  return evaluateCondition(filters);
+};
+
+const compareAudienceValue = (actual, operator, expected) => {
+  const normalized = String(operator || "equals").toLowerCase();
+  if (["gt", "gte", "lt", "lte", "greater_than", "greater_or_equal", "less_than", "less_or_equal"].includes(normalized)) {
+    const a = Number(actual);
+    const b = Number(expected);
+    if (!Number.isFinite(a) || !Number.isFinite(b)) return false;
+    if (normalized === "gt" || normalized === "greater_than") return a > b;
+    if (normalized === "gte" || normalized === "greater_or_equal") return a >= b;
+    if (normalized === "lt" || normalized === "less_than") return a < b;
+    return a <= b;
+  }
+
+  if (normalized === "contains") {
+    return actual != null && String(actual).toLowerCase().includes(String(expected).toLowerCase());
+  }
+  if (normalized === "starts_with") {
+    return actual != null && String(actual).toLowerCase().startsWith(String(expected).toLowerCase());
+  }
+  if (normalized === "ends_with") {
+    return actual != null && String(actual).toLowerCase().endsWith(String(expected).toLowerCase());
+  }
+  if (normalized === "not_equals" || normalized === "neq") {
+    return !valuesMatch(actual, expected);
+  }
+  return valuesMatch(actual, expected);
 };
 
 /**
@@ -577,6 +560,21 @@ const leadMatchesAudience = async (lead, audience, orgId) => {
         lead.status,
         normalizedAudience.status
       );
+
+    /**
+     * BY SCORE
+     */
+    case "score": {
+      const min = normalizedAudience.min !== undefined && normalizedAudience.min !== "" ? Number(normalizedAudience.min) : null;
+      const max = normalizedAudience.max !== undefined && normalizedAudience.max !== "" ? Number(normalizedAudience.max) : null;
+      if (min === null && max === null) return false;
+      if (min !== null && !Number.isFinite(min)) return false;
+      if (max !== null && !Number.isFinite(max)) return false;
+      if (min !== null && max !== null && min > max) return false;
+      if (min !== null && lead.score < min) return false;
+      if (max !== null && lead.score > max) return false;
+      return true;
+    }
 
     /**
      * BY TAG

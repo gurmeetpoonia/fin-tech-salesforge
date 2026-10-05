@@ -36,6 +36,27 @@ Purpose: ${purpose}`,
 /*
  AI-powered campaign personalization
  */
+const AUDIENCE_PROMPTS = {
+  qualified: "Write a professional qualification-focused B2B email that helps advance a qualified lead toward the next sales conversation.",
+  hot: "Write a direct, confident B2B sales email focused on conversion and a clear next step for a hot lead.",
+  followup: "Write a concise, helpful follow-up email that references the existing outreach context and asks for the next step without being pushy.",
+  highpriority: "Write highly personalized, relevant B2B outreach for a high-priority lead, emphasizing the most useful value proposition and a clear call to action.",
+  all: "Write professional B2B outreach appropriate for a general lead audience.",
+  default: "Write professional, concise B2B outreach appropriate for the selected campaign audience.",
+};
+
+const resolveAudiencePrompt = (audienceLabel = "") => {
+  const key = String(audienceLabel)
+    .toLowerCase()
+    .replace(/[^a-z]/g, "");
+  if (key.includes("qualified")) return AUDIENCE_PROMPTS.qualified;
+  if (key.includes("hot")) return AUDIENCE_PROMPTS.hot;
+  if (key.includes("followup") || key.includes("followup")) return AUDIENCE_PROMPTS.followup;
+  if (key.includes("highpriority") || key.includes("priority")) return AUDIENCE_PROMPTS.highpriority;
+  if (key === "all" || key.includes("allleads")) return AUDIENCE_PROMPTS.all;
+  return AUDIENCE_PROMPTS.default;
+};
+
 exports.personalizeCampaignEmail = async ({
   name,
   company,
@@ -43,6 +64,7 @@ exports.personalizeCampaignEmail = async ({
   industry,
   location,
   originalBody,
+  audienceLabel,
 }) => {
   try {
     const apiKey = process.env.GEMINI_API_KEY;
@@ -55,26 +77,32 @@ exports.personalizeCampaignEmail = async ({
 
     const model = process.env.GEMINI_MODEL || "gemini-2.5-flash";
 
-    const prompt = `Personalize the following B2B campaign email for the lead.
+    const audiencePrompt = resolveAudiencePrompt(audienceLabel);
 
-Lead:
+    const prompt = `You are generating the email body for a B2B campaign.
+
+Audience: ${audienceLabel || "General Leads"}
+Audience-specific instruction:
+${audiencePrompt}
+
+Authoritative lead data from the application database:
 Name: ${name || ""}
 Company: ${company || ""}
 Job Title: ${jobTitle || ""}
 Industry: ${industry || ""}
 Location: ${location || ""}
 
-Original email:
-${originalBody}
+Existing campaign body/template:
+${originalBody || ""}
 
 Rules:
-- Keep the original purpose and meaning.
-- Make the email sound natural and professional.
-- Use only information provided about the lead.
-- Do not invent facts.
-- Keep approximately the same length as the original.
-- Do not add a subject line.
-- Return only the email body.`;
+- Treat the lead data above as the only source of factual information about this person or company.
+- You may personalize wording, but you must never invent names, roles, companies, industries, locations, achievements, products, pain points, customers, numbers, or other facts.
+- Follow the audience-specific instruction above.
+- Preserve the campaign's intended purpose.
+- Keep the email concise, natural, professional, and suitable for B2B outreach.
+- Do not add a subject line, greeting metadata, explanations, or markdown fences.
+- Return only the final email body.`;
 
     const response = await ai.models.generateContent({
       model,
