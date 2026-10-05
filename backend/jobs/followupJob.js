@@ -10,6 +10,7 @@ const { createInAppNotification } = require("../services/notificationService");
 const { recordAudit } = require("../services/auditService");
 const logger = require("../utils/logger");
 const { activateCampaign } = require("../controllers/campaignController");
+const { leadMatchesAudience } = require("../services/campaignAutomationService");
 
 
 let running = false;
@@ -59,7 +60,29 @@ const tasks = {
         orderBy: { id: "asc" },
         take: BATCH_SIZE,
         include: {
-          sequence: { select: { orgId: true } },
+          sequence: {
+            select: {
+              orgId: true,
+              workflowId: true,
+              workflow: {
+                select: { id: true, active: true, trigger: true, conditions: true },
+              },
+            },
+          },
+          lead: {
+            select: {
+              id: true,
+              name: true,
+              email: true,
+              status: true,
+              source: true,
+              assignedToId: true,
+              companyName: true,
+              jobTitle: true,
+              industry: true,
+              location: true,
+            },
+          },
         },
       });
 
@@ -85,6 +108,31 @@ const tasks = {
         if (claimed.count !== 1) {
           continue;
         }
+
+        // Campaign audience and status are live data. Re-check them immediately
+        // before sending so a lead that no longer matches is never emailed just
+        // because an older enrollment was already queued. Completed/replied/
+        // bounced history is preserved; only the active enrollment is paused.
+        const campaign = enrollment.sequence.workflow;
+        if (
+          !campaign ||
+          !campaign.active ||
+          campaign.trigger !== "SCHEDULED_TIME" ||
+          campaign.conditions?.status !== "running" ||
+          !enrollment.leadId ||
+          !(await leadMatchesAudience(
+            enrollment.lead,
+            campaign.conditions?.audience,
+            enrollment.sequence.orgId
+          ))
+        ) {
+          await prisma.sequenceEnrollment.update({
+            where: { id: enrollment.id },
+            data: { status: "PAUSED", nextRunAt: null },
+          });
+          continue;
+        }
+
         const stopEvent = await prisma.emailEvent.findFirst({
           where: {
             orgId: enrollment.sequence.orgId,
@@ -424,34 +472,26 @@ const activateDueCampaigns = async () => {
         err: e.message,
       });
 
-      // Prevent an infinite 5-second retry loop when activation keeps failing
-      // (e.g. no matching leads). Pause the campaign so a human can fix the
-      // audience/schedule and manually re-launch it.
+      // Keep the campaign scheduled and retry on the next scheduler tick.
+      // In particular, an empty audience is not a terminal error: the campaign
+      // should still become RUNNING and enroll future matching leads.
       try {
-        const currentConditions =
-          campaign.conditions && typeof campaign.conditions === "object"
-            ? campaign.conditions
-            : {};
-
-         await prisma.workflow.update({
-          where: { id: campaign.id },
-          data: {
-            conditions: {
-              ...currentConditions,
-              status: "paused",
-              autoPaused: true,
-              lastError: e.message,
+        const current = await prisma.workflow.findFirst({
+          where: { id: campaign.id, orgId: campaign.orgId },
+        });
+        if (current) {
+          await prisma.workflow.update({
+            where: { id: campaign.id },
+            data: {
+              conditions: {
+                ...(current.conditions || {}),
+                lastError: e.message,
+              },
             },
-          },
-        });
-
-        logger.warn("job.campaign.auto_activation_paused", {
-          campaignId: campaign.id,
-          campaignName: campaign.name,
-          reason: e.message,
-        });
+          });
+        }
       } catch (updateErr) {
-        logger.error("job.campaign.auto_activation_pause_failed", {
+        logger.error("job.campaign.auto_activation_error_state_failed", {
           campaignId: campaign.id,
           err: updateErr.message,
         });
@@ -478,6 +518,8 @@ const run = async () => {
 
 const start = () => {
   if (process.env.DISABLE_CRON === "true") return;
+  // Check campaign schedules every 5 seconds so activation is close to the
+  // requested time without waiting for the next minute boundary.
   cron.schedule("*/5 * * * * *", run);
   cron.schedule("0 2 * * *", tasks.dailySnapshot);
   logger.info("jobs.scheduled");

@@ -86,6 +86,14 @@ const detachFromLead = asyncHandler(async (req, res) => {
   await prisma.leadTag.deleteMany({
     where: { leadId: Number(leadId), tagId: Number(tagId), lead: { orgId: req.orgId } },
   });
+
+  // Removing a tag can remove a lead from a RUNNING campaign audience.
+  await enrollLeadInActiveCampaigns(
+    { id: Number(leadId) },
+    req.orgId,
+    req.user.id
+  );
+
   return response.success(res, { message: "Tag detached." });
 });
 

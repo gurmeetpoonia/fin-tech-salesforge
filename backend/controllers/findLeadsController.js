@@ -2,6 +2,7 @@ const axios = require("axios");
 const { findLeadsQueue } = require("../queues/findLeadsQueue");
 const { redisClient } = require("../config/redis");
 const { prisma } = require("../config/postgres");
+const { enrollLeadInActiveCampaigns } = require("../services/campaignAutomationService");
 const { recordActivity } = require("../services/leadActivityService");
 const asyncHandler = require("../utils/asyncHandler");
 const response = require("../utils/response");
@@ -159,6 +160,7 @@ const confirmFindLeads = asyncHandler(async (req, res) => {
         });
 
         results.created.push(lead);
+        await enrollLeadInActiveCampaigns(lead, req.orgId, req.user.id);
       }
     } catch (err) {
       results.skipped.push({

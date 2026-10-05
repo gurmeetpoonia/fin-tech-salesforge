@@ -3,6 +3,7 @@ const { AppError } = require("../middleware/errorHandler");
 const asyncHandler = require("../utils/asyncHandler");
 const response = require("../utils/response");
 const { recordActivity } = require("../services/leadActivityService");
+const { enrollLeadInActiveCampaigns } = require("../services/campaignAutomationService");
 const { buildLeadWhere } = require("./leadController");
 const slugify = require("../utils/slugify");
 
@@ -89,7 +90,7 @@ const importLeads = asyncHandler(async (req, res) => {
     try {
       const existing = await prisma.lead.findUnique({ where: { email: data.email.toLowerCase() } });
       if (existing) {
-        await prisma.lead.update({
+        const updatedLead = await prisma.lead.update({
           where: { id: existing.id },
           data: {
             name: data.name,
@@ -102,6 +103,7 @@ const importLeads = asyncHandler(async (req, res) => {
             orgId: existing.orgId || req.orgId,
           },
         });
+        await enrollLeadInActiveCampaigns(updatedLead, req.orgId, req.user.id);
         results.updated += 1;
       } else {
         const lead = await prisma.lead.create({
@@ -125,6 +127,7 @@ const importLeads = asyncHandler(async (req, res) => {
           type: "CREATED",
           title: `${req.user.name} imported this lead from CSV`,
         });
+        await enrollLeadInActiveCampaigns(lead, req.orgId, req.user.id);
         results.created += 1;
       }
     } catch (error) {

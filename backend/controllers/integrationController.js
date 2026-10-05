@@ -7,6 +7,7 @@ const { dispatchNotification } = require("../services/notificationService");
 const { recordActivity } = require("../services/leadActivityService");
 const { publish } = require("../services/webhookService");
 const { incrementUsage } = require("../services/usageService");
+const { enrollLeadInActiveCampaigns } = require("../services/campaignAutomationService");
 const slugify = require("../utils/slugify");
 
 const isEmail = (s) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(s || ""));
@@ -35,7 +36,8 @@ const importFromIntegration = asyncHandler(async (req, res) => {
         addedById: req.user.id,
       };
       if (existing) {
-        await prisma.lead.update({ where: { id: existing.id }, data });
+        const updatedLead = await prisma.lead.update({ where: { id: existing.id }, data });
+        await enrollLeadInActiveCampaigns(updatedLead, req.orgId, req.user.id);
         results.updated += 1;
       } else {
         const lead = await prisma.lead.create({ data });
@@ -43,6 +45,7 @@ const importFromIntegration = asyncHandler(async (req, res) => {
           leadId: lead.id, userId: req.user.id, orgId: req.orgId,
           type: "CREATED", title: `Imported from ${provider}`,
         });
+        await enrollLeadInActiveCampaigns(lead, req.orgId, req.user.id);
         results.created += 1;
       }
     } catch (e) {

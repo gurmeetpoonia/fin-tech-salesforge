@@ -161,6 +161,11 @@ const Campaigns = () => {
 
       if (editingId) {
         await campaignService.update(editingId, payload);
+        setLeadsByCampaign((prev) => {
+          const next = { ...prev };
+          delete next[editingId];
+          return next;
+        });
         toast.success("Campaign updated");
       } else {
         await campaignService.create(payload);
@@ -314,6 +319,7 @@ const Campaigns = () => {
                       {c.conditions?.steps?.length
                         ? `${c.conditions.steps.length} step${c.conditions.steps.length > 1 ? "s" : ""}`
                         : c.conditions?.subject || "—"}
+                      {" · "}Expected Leads: {c.expectedLeads ?? 0}
                     </div>
                   </div>
                   <div className="flex items-center gap-2">
@@ -342,9 +348,11 @@ const Campaigns = () => {
                       <span className="text-sm text-slate-500">Stopped</span>
                     ) : c.conditions?.status === "completed" ? (
                       <span className="text-sm text-slate-500">Completed</span>
+                    ) : !c.active && c.conditions?.status === "scheduled" ? (
+                      <span className="text-sm text-slate-500">Waiting for schedule</span>
                     ) : !c.active ? (
                       <UptoButton variant="ghost" onClick={() => handleLaunch(c.id)}>
-                        Launch
+                        Schedule
                       </UptoButton>
                     ) : (
                       <>
