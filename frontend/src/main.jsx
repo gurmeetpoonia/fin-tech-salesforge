@@ -29,4 +29,20 @@ ReactDOM.createRoot(document.getElementById("root")).render(
   </React.StrictMode>
 );
 
+if ("serviceWorker" in navigator) {
+  window.addEventListener("load", () => {
+    if (import.meta.env.PROD) {
+      navigator.serviceWorker.register("/sw.js?v=3").catch(() => null);
+    } else {
+      // Local Vite development must never be controlled by a production
+      // service worker, otherwise stale bundles can survive normal refreshes.
+      navigator.serviceWorker.getRegistrations().then((registrations) => {
+        registrations
+          .filter((registration) => registration.active?.scriptURL.endsWith("/sw.js"))
+          .forEach((registration) => registration.unregister());
+      }).catch(() => null);
+    }
+  });
+}
+
 reportWebVitals();

@@ -95,10 +95,13 @@ const createLead = asyncHandler(async (req, res) => {
   // await updateLeadScore(lead.id);
   const updated = await prisma.lead.findUnique({ where: { id: lead.id }, include: LEAD_INCLUDE });
 
-  // Automatically enroll new leads into active campaigns without blocking lead creation.
-  enrollLeadInActiveCampaigns(updated, req.orgId, req.user.id).catch((error) => {
+  // Reconcile new leads before responding so a RUNNING campaign sees them
+  // immediately when their latest audience matches.
+  try {
+    await enrollLeadInActiveCampaigns(updated, req.orgId, req.user.id);
+  } catch (error) {
     console.error("Failed to auto-enroll lead into campaigns:", error);
-  });
+  }
   
   // ---------------------------------------------------------------------------
   // NOTIFICATION: Always notify the AUTHENTICATED USER who triggered this event.
@@ -262,6 +265,11 @@ const updateLead = asyncHandler(async (req, res) => {
   }
 
   const refreshed = await prisma.lead.findUnique({ where: { id: lead.id }, include: LEAD_INCLUDE });
+
+  // Lead status/segment fields can change campaign membership. Reconcile the
+  // lead immediately against every RUNNING campaign using the latest audience.
+  await enrollLeadInActiveCampaigns(refreshed, req.orgId, req.user.id);
+
   return response.success(res, refreshed);
 });
 
@@ -306,6 +314,17 @@ const bulkUpdate = asyncHandler(async (req, res) => {
       skipDuplicates: true,
     });
   }
+
+  const updatedLeads = await prisma.lead.findMany({
+    where: { id: { in: ids.map(Number) }, orgId: req.orgId },
+    select: { id: true, email: true },
+  });
+  await Promise.all(
+    updatedLeads.map((lead) =>
+      enrollLeadInActiveCampaigns(lead, req.orgId, req.user.id)
+    )
+  );
+
   await recordAudit({
     userId: req.user.id,
     orgId: req.orgId,
