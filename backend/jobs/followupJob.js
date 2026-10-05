@@ -417,12 +417,45 @@ const activateDueCampaigns = async () => {
         scheduledAt: result.scheduledAt,
         enrolled: result.enrolled,
       });
-    } catch (e) {
+       } catch (e) {
       logger.error("job.campaign.auto_activation_error", {
         campaignId: campaign.id,
         campaignName: campaign.name,
         err: e.message,
       });
+
+      // Prevent an infinite 5-second retry loop when activation keeps failing
+      // (e.g. no matching leads). Pause the campaign so a human can fix the
+      // audience/schedule and manually re-launch it.
+      try {
+        const currentConditions =
+          campaign.conditions && typeof campaign.conditions === "object"
+            ? campaign.conditions
+            : {};
+
+         await prisma.workflow.update({
+          where: { id: campaign.id },
+          data: {
+            conditions: {
+              ...currentConditions,
+              status: "paused",
+              autoPaused: true,
+              lastError: e.message,
+            },
+          },
+        });
+
+        logger.warn("job.campaign.auto_activation_paused", {
+          campaignId: campaign.id,
+          campaignName: campaign.name,
+          reason: e.message,
+        });
+      } catch (updateErr) {
+        logger.error("job.campaign.auto_activation_pause_failed", {
+          campaignId: campaign.id,
+          err: updateErr.message,
+        });
+      }
     }
   }
 };
@@ -445,7 +478,7 @@ const run = async () => {
 
 const start = () => {
   if (process.env.DISABLE_CRON === "true") return;
-  cron.schedule("* * * * *", run);
+  cron.schedule("*/5 * * * * *", run);
   cron.schedule("0 2 * * *", tasks.dailySnapshot);
   logger.info("jobs.scheduled");
 };

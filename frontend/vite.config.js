@@ -30,17 +30,19 @@ export default defineConfig({
     chunkSizeWarningLimit: 1000,
   },
   server: {
-    host: "0.0.0.0",
-    port: 5173,
-    allowedHosts: [".loca.lt", ".trycloudflare.com"],
-    proxy: {
-      "/api": {
-        target: process.env.VITE_DEV_API_PROXY || "http://localhost:3000",
-        changeOrigin: true,
-      },
-    },
-    hmr: {
-      host: "localhost",
+  host: "0.0.0.0",
+  port: 5173,
+  strictPort: true,
+  allowedHosts: [".loca.lt", ".trycloudflare.com"],
+  proxy: {
+    "/api": {
+      target: process.env.VITE_DEV_API_PROXY || "http://localhost:3000",
+      changeOrigin: true,
     },
   },
+  hmr: {
+    host: "localhost",
+    clientPort: 5173,
+  },
+},
 });

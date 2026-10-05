@@ -1,5 +1,5 @@
 const { prisma } = require("../config/postgres");
-
+const { activateCampaign } = require("../controllers/campaignController");
 const DEFAULT_CAMPAIGN_NAME = "Auto Welcome Campaign";
 
 const DEFAULT_SUBJECT = "Welcome, {{first_name}}!";
@@ -384,6 +384,34 @@ const enrollLeadInActiveCampaigns = async (
         "User ID is required for campaign enrollment."
       );
     }
+
+     // --- NEW: retry campaigns that were auto-paused because they had no
+    // matching leads yet. Now that a new lead just arrived, try activating them.
+    let autoPausedCampaigns = await prisma.workflow.findMany({
+      where: { orgId, trigger: "SCHEDULED_TIME", active: false },
+    });
+    autoPausedCampaigns = autoPausedCampaigns.filter(
+      (c) => (c.conditions || {}).autoPaused === true
+    );
+
+    for (const c of autoPausedCampaigns) {
+      const audience = normalizeAudience((c.conditions || {}).audience);
+      const matches = await leadMatchesAudience(lead, audience, orgId);
+      if (!matches) continue;
+
+      try {
+        await activateCampaign({
+          campaign: c,
+          orgId,
+          userId,
+          allowPastSchedule: true,
+        });
+        console.log(`Auto-resumed campaign ${c.id} ("${c.name}") after a new matching lead arrived.`);
+      } catch (err) {
+        console.warn(`Retry-activation still failing for campaign ${c.id}:`, err.message);
+      }
+    }
+    // --- end new block ---
 
     let campaigns = await prisma.workflow.findMany({
       where: {
