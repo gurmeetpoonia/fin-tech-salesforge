@@ -74,8 +74,6 @@ const create = asyncHandler(async (req, res) => {
   const {
   name,
   description,
-  subject,
-  body,
   audience,
   steps,
   type = "email",
@@ -96,16 +94,11 @@ const create = asyncHandler(async (req, res) => {
       trigger: "SCHEDULED_TIME",
       conditions: {
   segment: segment || null,
-  subject: subject || steps?.[0]?.subject || "",
-  body: body || steps?.[0]?.body || "",
   audience: audience || "all",
-  steps: steps || [
-    {
-      day: 0,
-      subject: subject || "",
-      body: body || "",
-    },
-  ],
+  steps:
+    Array.isArray(steps) && steps.length > 0
+      ? steps.map(({ subject: _subject, body: _body, ...step }) => step)
+      : [{ day: 0 }],
   type,
   schedule: schedule || null,
   status: schedule ? "scheduled" : "draft",
@@ -126,8 +119,6 @@ const update = asyncHandler(async (req, res) => {
   const {
     name,
     description,
-    subject,
-    body,
     audience,
     steps,
     status,
@@ -158,9 +149,17 @@ const update = asyncHandler(async (req, res) => {
 
   if (segment !== undefined) nextConditions.segment = segment;
   if (budget !== undefined) nextConditions.budget = budget;
-  if (subject !== undefined) nextConditions.subject = subject;
-  if (body !== undefined) nextConditions.body = body;
-  if (steps !== undefined) nextConditions.steps = steps;
+  // Manual email subject/body are no longer campaign configuration.
+  // Gemini generates both values per lead when the sequence runs.
+  delete nextConditions.subject;
+  delete nextConditions.body;
+
+  if (steps !== undefined) {
+    nextConditions.steps =
+      Array.isArray(steps) && steps.length > 0
+        ? steps.map(({ subject: _subject, body: _body, ...step }) => step)
+        : [{ day: 0 }];
+  }
   if (audience !== undefined) nextConditions.audience = audience;
 
   if (schedule !== undefined) {
@@ -194,8 +193,6 @@ const update = asyncHandler(async (req, res) => {
     audienceChanged ||
     segment !== undefined ||
     budget !== undefined ||
-    subject !== undefined ||
-    body !== undefined ||
     steps !== undefined ||
     scheduleChanged ||
     status !== undefined
