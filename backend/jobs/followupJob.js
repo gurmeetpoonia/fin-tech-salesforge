@@ -18,7 +18,7 @@ const isPermanentCampaignConfigurationError = (error) =>
   error.statusCode >= 400 &&
   error.statusCode < 500;
 
-const getCampaignAudienceLabel = async (audience, orgId) => {
+const getCampaignAudienceContext = async (audience, orgId) => {
   const value =
     typeof audience === "string"
       ? { type: audience }
@@ -34,15 +34,15 @@ const getCampaignAudienceLabel = async (audience, orgId) => {
       closed: "Closed Leads",
       lost: "Lost Leads",
     };
-    return labels[value.status] || `${value.status || "General"} Leads`;
+    return { type: "status", label: labels[value.status] || `${value.status || "General"} Leads`, status: value.status || "" };
   }
 
   if (value.type === "tag" && value.tagId) {
     const tag = await prisma.tag.findFirst({
       where: { id: Number(value.tagId), orgId },
-      select: { name: true },
+      select: { id: true, name: true, filters: true },
     });
-    return tag?.name || "Tagged Leads";
+    return { type: "tag", label: tag?.name || "Tagged Leads", tagId: Number(value.tagId), tagName: tag?.name || "Tagged Leads", tagSlug: tag?.slug || "" };
   }
 
   if (value.type === "segment" && value.savedSearchId) {
@@ -50,10 +50,10 @@ const getCampaignAudienceLabel = async (audience, orgId) => {
       where: { id: Number(value.savedSearchId), resource: "leads", OR: [{ orgId }, { orgId: null }] },
       select: { name: true },
     });
-    return segment?.name || "Segment Leads";
+    return { type: "segment", label: segment?.name || "Segment Leads", savedSearchId: Number(value.savedSearchId), segmentName: segment?.name || "Segment Leads", filters: segment?.filters || {} };
   }
 
-  return "All Leads";
+  if (value.type === "score") return { type: "score", label: "Score-based Leads", min: value.min ?? null, max: value.max ?? null };\n  return { type: "all", label: "All Leads" };
 };
 
 
@@ -287,7 +287,7 @@ if (enrollment.leadId) {
 
 let personalizedSubject = "";
 try {
-  const audienceLabel = await getCampaignAudienceLabel(
+  const audienceContext = await getCampaignAudienceContext(
     campaign.conditions?.audience,
     enrollment.sequence.orgId
   );
