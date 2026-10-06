@@ -263,16 +263,19 @@ const Campaigns = () => {
   };
   const toggleLeads = async (campaignId) => {
   const campaign = items.find((item) => item.id === campaignId);
-  if (campaign?.conditions?.status === "scheduled" && !campaign.active) {
-    setExpandedId((current) => (current === campaignId ? null : campaignId));
-    return;
-  }
+  const isScheduled = campaign?.conditions?.status === "scheduled" && !campaign.active;
 
   if (expandedId === campaignId) {
     setExpandedId(null);
     return;
   }
+
   setExpandedId(campaignId);
+
+  // Scheduled campaigns already receive their latest expected-lead preview
+  // from the campaign list endpoint, so do not query enrollments here.
+  if (isScheduled) return;
+
   if (!leadsByCampaign[campaignId]) {
     setLoadingLeads(true);
     try {
@@ -389,11 +392,11 @@ const Campaigns = () => {
                       </>
                     )}
 
-                    {!(c.conditions?.status === "scheduled" && !c.active) && (
-                      <UptoButton variant="ghost" onClick={() => toggleLeads(c.id)}>
-                        {expandedId === c.id ? "Hide Leads" : "View Leads"}
-                      </UptoButton>
-                    )}
+                    <UptoButton variant="ghost" onClick={() => toggleLeads(c.id)}>
+                      {c.conditions?.status === "scheduled" && !c.active
+                        ? (expandedId === c.id ? "Hide Expected Leads" : "View Expected Leads")
+                        : (expandedId === c.id ? "Hide Leads" : "View Leads")}
+                    </UptoButton>
 
                     <UptoButton
                       variant="ghost"
@@ -411,7 +414,7 @@ const Campaigns = () => {
                   </div>
                 </div>
 
-                {c.conditions?.status === "scheduled" && !c.active && (
+                {expandedId === c.id && c.conditions?.status === "scheduled" && !c.active && (
                   <div className="mt-3 rounded-lg bg-slate-50 dark:bg-slate-800/60 p-3">
                     <div className="text-xs font-semibold text-slate-600 dark:text-slate-300 mb-2">
                       Expected leads
@@ -433,7 +436,7 @@ const Campaigns = () => {
                   </div>
                 )}
 
-                {expandedId === c.id && (
+                {expandedId === c.id && !(c.conditions?.status === "scheduled" && !c.active) && (
                   <div className="mt-3 pt-3 border-t border-slate-200 dark:border-slate-700">
                     {loadingLeads ? (
                       <UptoSpinner />
