@@ -233,9 +233,17 @@ const updateLead = asyncHandler(async (req, res) => {
     }).catch(console.error);
   }
 
-  // Re-score if engagement-related fields changed.
-  if (changes.some((c) => ["engagement", "source"].includes(c.field))) {
-    updateLeadScore(lead.id).catch(console.error);
+  // Re-score before campaign reconciliation so a By Score audience always
+  // uses the lead's latest calculated score.
+  const scoreNeedsRefresh = changes.some((c) =>
+    ["engagement", "source"].includes(c.field)
+  );
+  if (scoreNeedsRefresh) {
+    try {
+      await updateLeadScore(lead.id);
+    } catch (error) {
+      console.error("Failed to refresh lead score:", error);
+    }
   }
 
   recordAudit({
