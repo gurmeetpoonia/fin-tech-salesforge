@@ -506,15 +506,25 @@ const activateDueCampaigns = async () => {
       }
 
       if (!conditions.schedule) {
+        if (conditions.status === "scheduled") {
+          throw new (require("../middleware/errorHandler").AppError)(
+            "A valid campaign schedule date and time is required.",
+            400
+          );
+        }
         continue;
       }
 
       const scheduledAt = new Date(conditions.schedule);
 
-      if (
-        Number.isNaN(scheduledAt.getTime()) ||
-        scheduledAt.getTime() > now.getTime()
-      ) {
+      if (Number.isNaN(scheduledAt.getTime())) {
+        throw new (require("../middleware/errorHandler").AppError)(
+          "A valid campaign schedule date and time is required.",
+          400
+        );
+      }
+
+      if (scheduledAt.getTime() > now.getTime()) {
         continue;
       }
 
