@@ -58,6 +58,7 @@ const getCampaignAudienceLabel = async (audience, orgId) => {
 
 
 let running = false;
+let schedulerInterval = null;
 
 const tasks = {
   // Every minute: nudge new leads that haven't been contacted.
@@ -609,12 +610,33 @@ const run = async () => {
 };
 
 const start = () => {
-  if (process.env.DISABLE_CRON === "true") return;
-  // Check campaign schedules every 5 seconds so activation is close to the
-  // requested time without waiting for the next minute boundary.
-  cron.schedule("*/5 * * * * *", run);
+  if (process.env.DISABLE_CRON === "true") {
+    logger.warn("jobs.disabled", { reason: "DISABLE_CRON=true" });
+    return;
+  }
+
+  // Run immediately on startup so campaigns whose scheduled time passed while
+  // the server was restarting/sleeping are activated as soon as the server
+  // becomes healthy. Do not wait for the first cron boundary.
+  void run();
+
+  // Use a process-local interval for campaign activation. This is deliberately
+  // independent of cron's schedule parser so every long-running API instance
+  // performs a reliable due-campaign check every 5 seconds.
+  if (!schedulerInterval) {
+    schedulerInterval = setInterval(() => {
+      void run();
+    }, 5_000);
+    schedulerInterval.unref?.();
+  }
+
+  // Keep cron for the daily platform snapshot only.
   cron.schedule("0 2 * * *", tasks.dailySnapshot);
-  logger.info("jobs.scheduled");
+
+  logger.info("jobs.scheduled", {
+    campaignScheduler: "5s-interval",
+    startupCatchUp: true,
+  });
 };
 
 module.exports = { start, tasks };
