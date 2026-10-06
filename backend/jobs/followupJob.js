@@ -119,6 +119,12 @@ const tasks = {
               jobTitle: true,
               industry: true,
               location: true,
+              score: true,
+              tags: {
+                select: {
+                  tagId: true,
+                },
+              },
             },
           },
         },

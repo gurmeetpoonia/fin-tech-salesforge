@@ -202,6 +202,14 @@ const getMatchingCampaignLeads = async (audience, orgId) => {
 
     const leads = await prisma.lead.findMany({
       where: { orgId, email: { not: "" } },
+      include: {
+        tags: {
+          select: {
+            tagId: true,
+            tag: { select: { id: true, name: true, slug: true } },
+          },
+        },
+      },
     });
 
     return leads
@@ -460,6 +468,32 @@ const valuesMatch = (leadValue, filterValue) => {
  *
  * If multiple fields exist, ALL conditions must match.
  */
+const getAudienceFieldValue = (lead, field) => {
+  if (["tagId", "tagIds", "tags"].includes(field)) {
+    const tagIds = Array.isArray(lead?.tags)
+      ? lead.tags.map((entry) => Number(entry?.tagId ?? entry?.tag?.id ?? entry?.id)).filter(Number.isFinite)
+      : [];
+    return tagIds;
+  }
+
+  return lead?.[field];
+};
+
+const compareAudienceField = (actual, operator, expected) => {
+  if (Array.isArray(actual)) {
+    const values = actual;
+    const normalized = String(operator || "equals").toLowerCase();
+
+    if (normalized === "not_equals" || normalized === "neq") {
+      return values.every((value) => !compareAudienceValue(value, "equals", expected));
+    }
+
+    return values.some((value) => compareAudienceValue(value, normalized, expected));
+  }
+
+  return compareAudienceValue(actual, operator, expected);
+};
+
 const matchesSavedSearchFilters = (lead, filters) => {
   if (!filters || typeof filters !== "object") return true;
 
@@ -473,17 +507,20 @@ const matchesSavedSearchFilters = (lead, filters) => {
     }
 
     if (condition.field && condition.operator) {
-      const actual = lead[condition.field];
-      const expected = condition.value;
-      return compareAudienceValue(actual, condition.operator, expected);
+      return compareAudienceField(
+        getAudienceFieldValue(lead, condition.field),
+        condition.operator,
+        condition.value
+      );
     }
 
     if (condition.field) {
-      const actual = lead[condition.field];
+      const actual = getAudienceFieldValue(lead, condition.field);
       const expected = condition.value;
-      return Array.isArray(expected)
-        ? expected.some((value) => valuesMatch(actual, value))
-        : valuesMatch(actual, expected);
+      if (Array.isArray(expected)) {
+        return expected.some((value) => compareAudienceField(actual, "equals", value));
+      }
+      return compareAudienceField(actual, "equals", expected);
     }
 
     const entries = Object.entries(condition).filter(
@@ -491,17 +528,22 @@ const matchesSavedSearchFilters = (lead, filters) => {
     );
 
     return entries.every(([field, expected]) => {
-      const actual = lead[field];
+      const actual = getAudienceFieldValue(lead, field);
+
       if (Array.isArray(expected)) {
-        return expected.some((value) => valuesMatch(actual, value));
+        return expected.some((value) => compareAudienceField(actual, "equals", value));
       }
+
       if (expected && typeof expected === "object" && !Array.isArray(expected)) {
         if (expected.operator) {
-          return compareAudienceValue(actual, expected.operator, expected.value);
+          return compareAudienceField(actual, expected.operator, expected.value);
         }
-        if (expected.value !== undefined) return valuesMatch(actual, expected.value);
+        if (expected.value !== undefined) {
+          return compareAudienceField(actual, "equals", expected.value);
+        }
       }
-      return valuesMatch(actual, expected);
+
+      return compareAudienceField(actual, "equals", expected);
     });
   };
 
@@ -626,8 +668,19 @@ const leadMatchesAudience = async (lead, audience, orgId) => {
         return false;
       }
 
+      const leadForSegment =
+        Array.isArray(lead.tags)
+          ? lead
+          : {
+              ...lead,
+              tags: await prisma.leadTag.findMany({
+                where: { leadId: lead.id },
+                select: { tagId: true },
+              }),
+            };
+
       return matchesSavedSearchFilters(
-        lead,
+        leadForSegment,
         savedSearch.filters
       );
     }
