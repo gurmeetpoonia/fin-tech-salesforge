@@ -491,9 +491,9 @@ const Campaigns = () => {
                 >
                   <option value="all">All Leads</option>
                   <option value="status">By Status</option>
-                  <option value="score">By Score</option>
                   <option value="tag">By Tag</option>
                   <option value="segment">By Saved Segment</option>
+                  <option value="score">By Score</option>
                 </select>
 
                 {(typeof draft.audience === "object" && draft.audience?.type === "tag") && (
