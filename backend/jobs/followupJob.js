@@ -103,7 +103,7 @@ const tasks = {
               orgId: true,
               workflowId: true,
               workflow: {
-                select: { id: true, active: true, trigger: true, conditions: true },
+            select: { id: true, active: true, trigger: true, conditions: true, name: true, description: true },
               },
             },
           },
@@ -290,13 +290,14 @@ try {
     jobTitle: lead?.jobTitle || "",
     industry: lead?.industry || "",
     location: lead?.location || "",
-    originalBody: body,
+    campaignName: campaign.name || "",
+    campaignDescription: campaign.description || "",
     audienceLabel,
+    stepNumber: enrollment.currentStep + 1,
   });
 
-  if (personalized?.output) {
-    body = personalized.output;
-  }
+  body = personalized.body;
+  var personalizedSubject = personalized.subject;
 } catch (error) {
   logger.warn("job.sequence.ai_personalization_failed", {
     enrollmentId: enrollment.id,
@@ -330,14 +331,10 @@ try {
         const trackedHtml = `${trackedBody}
             <img src="${tracking.openUrl}" width="1" height="1" style="display:none;" alt="" />`;
 
-        const personalizedSubject = personalizeTemplate(
-            currentStep.subject,
-            lead,
-            firstName
-          );
+        const subject = personalizedSubject;
         const sendResult = await sendEmail({
           to: enrollment.email,
-          subject: personalizedSubject,
+          subject,
           html: trackedHtml,
           from: "uptoskills.salesforge@gmail.com",
         });
@@ -367,7 +364,7 @@ try {
             orgId: enrollment.sequence.orgId,
             type: "SENT",
             recipient: enrollment.email,
-            subject: currentStep.subject,
+            subject,
             messageId,
           },
         });
