@@ -198,7 +198,7 @@ const Campaigns = () => {
           {
             day: 0,
             subject: "",
-            body: "",
+        body: "",
           },
         ],
       });
@@ -627,7 +627,7 @@ const Campaigns = () => {
                               ? 0
                               : draft.steps[draft.steps.length - 1].day + 1,
                             subject: "",
-                            body: "",
+        body: "",
                           },
                         ],
                       })
@@ -691,33 +691,12 @@ const Campaigns = () => {
                       required
                     />
 
-                    <UptoInput
-                      label="Subject"
-                      value={step.subject}
-                      onChange={(e) => {
-                        const steps = [...draft.steps];
-                        steps[index] = {
-                          ...steps[index],
-                          subject: e.target.value,
-                        };
-                        setDraft({ ...draft, steps });
-                      }}
-                      required
-                    />
-
-                    <UptoInput
-                      label="Email Body"
-                      value={step.body}
-                      onChange={(e) => {
-                        const steps = [...draft.steps];
-                        steps[index] = {
-                          ...steps[index],
-                          body: e.target.value,
-                        };
-                        setDraft({ ...draft, steps });
-                      }}
-                      required
-                    />
+                    <div className="rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/60 p-3 text-sm">
+                      <div className="font-medium">Email content</div>
+                      <div className="text-xs text-slate-500 mt-1">
+                        Gemini automatically generates a personalized subject and email body for each matching lead when the campaign runs.
+                      </div>
+                    </div>
                   </div>
                 ))}
               </div>
