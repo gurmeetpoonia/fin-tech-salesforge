@@ -1,7 +1,7 @@
 const axios = require("axios");
 const { GoogleGenAI } = require("@google/genai");
 
-
+const AI_URL = process.env.AI_URL;
 const TIMEOUT = process.env.AI_TIMEOUT || 5000;
 
 const axiosInstance = axios.create({
