@@ -121,9 +121,10 @@ const Campaigns = () => {
       return `Status: ${matchedStatus ? matchedStatus.label : audienceObj.status}`;
     }
     if (audienceObj?.type === "score") {
-      if (audienceObj.min !== "" && audienceObj.max !== "") return `Score: ${audienceObj.min}–${audienceObj.max}`;
-      if (audienceObj.min !== "") return `Score: ≥ ${audienceObj.min}`;
-      return `Score: ≤ ${audienceObj.max}`;
+      const op = audienceObj.operator || (audienceObj.min !== "" && audienceObj.max !== "" ? "between" : "gte");
+      if (op === "between") return `Score: ${audienceObj.min}–${audienceObj.max}`;
+      const symbols = { gt: ">", gte: "≥", lt: "<", lte: "≤" };
+      return `Score: ${symbols[op] || "≥"} ${audienceObj.value ?? audienceObj.min ?? audienceObj.max}`;
     }
     if (audienceObj?.type === "segment") {
       const seg = segments.find((s) => s.id === Number(audienceObj.savedSearchId));
