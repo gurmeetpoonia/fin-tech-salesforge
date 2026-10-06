@@ -1,10 +1,13 @@
 const nodemailer = require("nodemailer");
 
 let smtpTransporter = null;
+let smtpVerificationPromise = null;
 
 const getSmtpConfig = () => {
-  const user = process.env.SMTP_USER || process.env.EMAIL_USER;
-  const pass = process.env.SMTP_PASS || process.env.EMAIL_PASS;
+  const user = String(process.env.SMTP_USER || process.env.EMAIL_USER || "").trim();
+  // Gmail App Passwords are sometimes copied with grouping whitespace.
+  // SMTP authentication expects the raw 16-character value.
+  const pass = String(process.env.SMTP_PASS || process.env.EMAIL_PASS || "").replace(/\s+/g, "");
 
   return {
     user,
@@ -56,6 +59,14 @@ const sendEmail = async ({ to, subject, html, text, from: requestedFrom }) => {
 
   try {
     const smtpConfig = getSmtpConfig();
+
+    if (!smtpVerificationPromise) {
+      smtpVerificationPromise = transporter.verify().catch((verifyError) => {
+        smtpVerificationPromise = null;
+        throw verifyError;
+      });
+    }
+    await smtpVerificationPromise;
     const from =
       requestedFrom ||
       process.env.EMAIL_FROM ||
