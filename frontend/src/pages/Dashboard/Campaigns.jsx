@@ -93,7 +93,7 @@ const Campaigns = () => {
     } else if (type === "status") {
       setDraft({ ...draft, audience: { type: "status", status: "new" } });
     } else if (type === "score") {
-      setDraft({ ...draft, audience: { type: "score", min: 80, max: "" } });
+      setDraft({ ...draft, audience: { type: "score", operator: "gte", value: 80, min: "", max: "", conditions: [] } });
     } else if (type === "segment") {
       const firstSegId = segments[0]?.id || "";
       setDraft({ ...draft, audience: { type: "segment", savedSearchId: firstSegId } });
@@ -145,13 +145,21 @@ const Campaigns = () => {
         toast.error("Please select a status");
         return;
       }
-      if (aud.type === "score" && aud.min === "" && aud.max === "") {
-        toast.error("Please provide a score range");
-        return;
-      }
-      if (aud.type === "score" && aud.min !== "" && aud.max !== "" && Number(aud.min) > Number(aud.max)) {
-        toast.error("Minimum score cannot be greater than maximum score");
-        return;
+      if (aud.type === "score") {
+        const operator = aud.operator || "gte";
+        if (operator === "between") {
+          if (aud.min === "" || aud.max === "") {
+            toast.error("Please provide both minimum and maximum scores");
+            return;
+          }
+          if (Number(aud.min) > Number(aud.max)) {
+            toast.error("Minimum score cannot be greater than maximum score");
+            return;
+          }
+        } else if (aud.value === "" || aud.value === undefined) {
+          toast.error("Please provide a score value");
+          return;
+        }
       }
       if (aud.type === "segment" && !aud.savedSearchId) {
         toast.error("Please select a segment");
@@ -536,19 +544,42 @@ const Campaigns = () => {
                 )}
 
                 {(typeof draft.audience === "object" && draft.audience?.type === "score") && (
-                  <div className="mt-2 space-y-2">
-                    <label className="text-xs text-slate-500 mb-1 block">Score range</label>
+                  <div className="mt-2 space-y-3">
+                    <label className="text-xs text-slate-500 block">Score condition</label>
                     <div className="grid grid-cols-2 gap-2">
-                      <UptoInput
-                        label="Minimum"
-                        type="number"
-                        min="0"
-                        value={draft.audience?.min ?? ""}
+                      <select
+                        className="w-full rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 p-2 text-sm"
+                        value={draft.audience?.operator || "gte"}
                         onChange={(e) => setDraft({
                           ...draft,
-                          audience: { ...draft.audience, min: e.target.value === "" ? "" : Number(e.target.value) },
+                          audience: { ...draft.audience, operator: e.target.value },
                         })}
+                      >
+                        <option value="gt">&gt; Greater than</option>
+                        <option value="gte">≥ Greater than or equal</option>
+                        <option value="lt">&lt; Less than</option>
+                        <option value="lte">≤ Less than or equal</option>
+                        <option value="between">Between</option>
+                      </select>
+                      <UptoInput
+                        label={draft.audience?.operator === "between" ? "Minimum" : "Score"}
+                        type="number"
+                        min="0"
+                        value={draft.audience?.operator === "between"
+                          ? (draft.audience?.min ?? "")
+                          : (draft.audience?.value ?? "")}
+                        onChange={(e) => {
+                          const value = e.target.value === "" ? "" : Number(e.target.value);
+                          setDraft({
+                            ...draft,
+                            audience: draft.audience?.operator === "between"
+                              ? { ...draft.audience, min: value }
+                              : { ...draft.audience, value },
+                          });
+                        }}
                       />
+                    </div>
+                    {draft.audience?.operator === "between" && (
                       <UptoInput
                         label="Maximum"
                         type="number"
@@ -559,9 +590,57 @@ const Campaigns = () => {
                           audience: { ...draft.audience, max: e.target.value === "" ? "" : Number(e.target.value) },
                         })}
                       />
-                    </div>
-                    <div className="text-xs text-slate-500">
-                      Examples: minimum 80 = Score ≥ 80; maximum 50 = Score ≤ 50; both = custom range.
+                    )}
+
+                    <div className="border-t border-slate-200 dark:border-slate-700 pt-3 space-y-2">
+                      <label className="text-xs text-slate-500 block">Optional additional conditions (AND)</label>
+                      <select
+                        className="w-full rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 p-2 text-sm"
+                        value={draft.audience?.conditions?.[0]?.field || ""}
+                        onChange={(e) => {
+                          const field = e.target.value;
+                          const conditions = field
+                            ? [{ field, operator: "equals", value: field === "status" ? "new" : (tags[0]?.id || "") }]
+                            : [];
+                          setDraft({ ...draft, audience: { ...draft.audience, conditions } });
+                        }}
+                      >
+                        <option value="">No additional condition</option>
+                        <option value="status">Status</option>
+                        <option value="tagId">Tag</option>
+                      </select>
+                      {draft.audience?.conditions?.[0]?.field === "status" && (
+                        <select
+                          className="w-full rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 p-2 text-sm"
+                          value={draft.audience.conditions[0].value || ""}
+                          onChange={(e) => setDraft({
+                            ...draft,
+                            audience: {
+                              ...draft.audience,
+                              conditions: [{ ...draft.audience.conditions[0], value: e.target.value }],
+                            },
+                          })}
+                        >
+                          {LEAD_STATUS_OPTIONS.map((st) => (
+                            <option key={st.value} value={st.value}>{st.label}</option>
+                          ))}
+                        </select>
+                      )}
+                      {draft.audience?.conditions?.[0]?.field === "tagId" && (
+                        <select
+                          className="w-full rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 p-2 text-sm"
+                          value={draft.audience.conditions[0].value || ""}
+                          onChange={(e) => setDraft({
+                            ...draft,
+                            audience: {
+                              ...draft.audience,
+                              conditions: [{ ...draft.audience.conditions[0], value: Number(e.target.value) }],
+                            },
+                          })}
+                        >
+                          {tags.map((tag) => <option key={tag.id} value={tag.id}>{tag.name}</option>)}
+                        </select>
+                      )}
                     </div>
                   </div>
                 )}
