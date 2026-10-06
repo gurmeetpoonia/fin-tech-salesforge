@@ -2,17 +2,32 @@ const nodemailer = require("nodemailer");
 
 let smtpTransporter = null;
 
+const getSmtpConfig = () => {
+  const user = process.env.SMTP_USER || process.env.EMAIL_USER;
+  const pass = process.env.SMTP_PASS || process.env.EMAIL_PASS;
+
+  return {
+    user,
+    pass,
+    host: process.env.SMTP_HOST || "smtp.gmail.com",
+    port: Number(process.env.SMTP_PORT || 465),
+    secure: String(process.env.SMTP_SECURE || "true") === "true",
+  };
+};
+
 const getSmtpTransporter = () => {
-  if (!process.env.SMTP_USER || !process.env.SMTP_PASS) return null;
+  const config = getSmtpConfig();
+
+  if (!config.user || !config.pass) return null;
 
   if (!smtpTransporter) {
     smtpTransporter = nodemailer.createTransport({
-      host: process.env.SMTP_HOST || "smtp.gmail.com",
-      port: Number(process.env.SMTP_PORT || 465),
-      secure: String(process.env.SMTP_SECURE || "true") === "true",
+      host: config.host,
+      port: config.port,
+      secure: config.secure,
       auth: {
-        user: process.env.SMTP_USER,
-        pass: process.env.SMTP_PASS,
+        user: config.user,
+        pass: config.pass,
       },
     });
   }
@@ -25,16 +40,26 @@ const sendEmail = async ({ to, subject, html, text, from: requestedFrom }) => {
 
   if (!transporter) {
     if (process.env.NODE_ENV !== "test") {
-      console.info(`[email:skipped] SMTP credentials not set. ${subject} -> ${to}`);
+      const smtpConfig = getSmtpConfig();
+      console.info(
+        `[email:skipped] SMTP credentials not set. ${subject} -> ${to}`,
+        JSON.stringify({
+          userConfigured: Boolean(smtpConfig.user),
+          passConfigured: Boolean(smtpConfig.pass),
+          host: smtpConfig.host,
+          port: smtpConfig.port,
+        })
+      );
     }
     return { skipped: true };
   }
 
   try {
+    const smtpConfig = getSmtpConfig();
     const from =
       requestedFrom ||
       process.env.EMAIL_FROM ||
-      `UptoSkills SalesForge <${process.env.SMTP_USER}>`;
+      `UptoSkills SalesForge <${smtpConfig.user}>`;
 
     const frontendUrl = (
       process.env.FRONTEND_URL || "http://localhost:5173"
@@ -46,7 +71,7 @@ const sendEmail = async ({ to, subject, html, text, from: requestedFrom }) => {
       subject,
       html,
       text: text || subject,
-      replyTo: process.env.SMTP_USER,
+      replyTo: process.env.EMAIL_REPLY_TO || smtpConfig.user,
       headers: {
         "List-Unsubscribe": `<${frontendUrl}/notifications-prefs>`,
         "List-Unsubscribe-Post": "List-Unsubscribe=One-Click",
@@ -60,7 +85,18 @@ const sendEmail = async ({ to, subject, html, text, from: requestedFrom }) => {
     };
   } catch (err) {
     if (process.env.NODE_ENV !== "test") {
-      console.warn(`[email:error] ${subject} -> ${to}: ${err.message}`);
+      console.warn(
+        `[email:error] ${subject} -> ${to}: ${err.message}`,
+        JSON.stringify({
+          code: err.code || null,
+          responseCode: err.responseCode || null,
+          command: err.command || null,
+          host: getSmtpConfig().host,
+          port: getSmtpConfig().port,
+          userConfigured: Boolean(getSmtpConfig().user),
+          passConfigured: Boolean(getSmtpConfig().pass),
+        })
+      );
     }
 
     if (
