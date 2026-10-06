@@ -12,6 +12,11 @@ const logger = require("../utils/logger");
 const { activateCampaign } = require("../controllers/campaignController");
 const { leadMatchesAudience } = require("../services/campaignAutomationService");
 
+const isPermanentCampaignConfigurationError = (error) =>
+  Number.isInteger(error?.statusCode) &&
+  error.statusCode >= 400 &&
+  error.statusCode < 500;
+
 const getCampaignAudienceLabel = async (audience, orgId) => {
   const value =
     typeof audience === "string"
@@ -278,6 +283,7 @@ if (enrollment.leadId) {
 
 
 
+let personalizedSubject = "";
 try {
   const audienceLabel = await getCampaignAudienceLabel(
     campaign.conditions?.audience,
@@ -297,12 +303,23 @@ try {
   });
 
   body = personalized.body;
-  var personalizedSubject = personalized.subject;
+  personalizedSubject = personalized.subject;
 } catch (error) {
   logger.warn("job.sequence.ai_personalization_failed", {
     enrollmentId: enrollment.id,
     err: error.message,
   });
+
+  // Gemini is the source of truth for campaign email content. Never attempt
+  // to send an email with a missing/old manual subject or body.
+  await prisma.sequenceEnrollment.update({
+    where: { id: enrollment.id },
+    data: {
+      nextRunAt: new Date(Date.now() + 15 * 60 * 1000),
+    },
+  });
+
+  continue;
 }
 
         const messageId = crypto.randomUUID();
@@ -520,23 +537,38 @@ const activateDueCampaigns = async () => {
         err: e.message,
       });
 
-      // Keep the campaign scheduled and retry on the next scheduler tick.
-      // In particular, an empty audience is not a terminal error: the campaign
-      // should still become RUNNING and enroll future matching leads.
+      // Permanent configuration errors must not remain in the scheduled queue.
+      // Save the error state and stop automatic retries until the campaign is
+      // explicitly corrected/rescheduled. Transient infrastructure failures
+      // remain retryable.
       try {
         const current = await prisma.workflow.findFirst({
           where: { id: campaign.id, orgId: campaign.orgId },
         });
         if (current) {
+          const permanent = isPermanentCampaignConfigurationError(e);
           await prisma.workflow.update({
             where: { id: campaign.id },
             data: {
+              active: false,
               conditions: {
                 ...(current.conditions || {}),
+                ...(permanent ? { status: "error", errorAt: new Date().toISOString() } : {}),
                 lastError: e.message,
               },
             },
           });
+
+          logger[permanent ? "warn" : "error"](
+            permanent
+              ? "job.campaign.auto_activation_configuration_error"
+              : "job.campaign.auto_activation_retryable_error",
+            {
+              campaignId: campaign.id,
+              campaignName: campaign.name,
+              err: e.message,
+            }
+          );
         }
       } catch (updateErr) {
         logger.error("job.campaign.auto_activation_error_state_failed", {
