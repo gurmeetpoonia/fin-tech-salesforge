@@ -499,7 +499,8 @@ const activateDueCampaigns = async () => {
         conditions.status === "running" ||
         conditions.status === "completed" ||
         conditions.status === "cancelled" ||
-        conditions.status === "paused"
+        conditions.status === "paused" ||
+        conditions.status === "error"
       ) {
         continue;
       }
