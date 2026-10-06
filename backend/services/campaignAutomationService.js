@@ -161,6 +161,38 @@ const buildAudienceLeadWhere = async (audience, orgId) => {
   return leadWhere;
 };
 
+const getMatchingCampaignLeads = async (audience, orgId) => {
+  const normalizedAudience = normalizeAudience(audience);
+  const leads = await prisma.lead.findMany({
+    where: { orgId, email: { not: "" } },
+    include: {
+      tags: {
+        select: {
+          tagId: true,
+          tag: { select: { id: true, name: true, slug: true } },
+        },
+      },
+    },
+  });
+
+  const matching = [];
+  for (const lead of leads) {
+    if (await leadMatchesAudience(lead, normalizedAudience, orgId)) {
+      matching.push({
+        id: lead.id,
+        name: lead.name,
+        email: lead.email,
+        companyName: lead.companyName,
+        jobTitle: lead.jobTitle,
+        industry: lead.industry,
+        status: lead.status,
+        score: lead.score,
+      });
+    }
+  }
+  return matching;
+};
+
 const getCampaignAudienceCount = async (audience, orgId) => {
   const normalizedAudience = normalizeAudience(audience);
   if (normalizedAudience.type === "segment") {
