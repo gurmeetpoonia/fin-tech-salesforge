@@ -143,7 +143,7 @@ Rules:
     const raw = response.text?.trim();
     if (!raw) throw new Error("Gemini returned an empty response");
 
-    const cleaned = raw.replace(/^\`\`\`(?:json)?\\s*/i, "").replace(/\\s*\`\`\`$/i, "").trim();
+    const cleaned = raw.replace(/^\`\`\`(?:json)?\s*/i, "").replace(/\s*\`\`\`$/i, "").trim();
     let parsed;
     try {
       parsed = JSON.parse(cleaned);
