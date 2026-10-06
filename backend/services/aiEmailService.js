@@ -37,23 +37,37 @@ Purpose: ${purpose}`,
  AI-powered campaign personalization
  */
 const AUDIENCE_PROMPTS = {
-  qualified: "Write a professional qualification-focused B2B email that helps advance a qualified lead toward the next sales conversation.",
-  hot: "Write a direct, confident B2B sales email focused on conversion and a clear next step for a hot lead.",
-  followup: "Write a concise, helpful follow-up email that references the existing outreach context and asks for the next step without being pushy.",
-  highpriority: "Write highly personalized, relevant B2B outreach for a high-priority lead, emphasizing the most useful value proposition and a clear call to action.",
+  status_new: "Write a professional B2B email for a new lead. Introduce the value clearly, establish relevance, and use a low-friction call to action without assuming prior contact.",
+  status_contacted: "Write a concise follow-up for a contacted lead. Build naturally on the fact that outreach has already occurred, provide useful value, and suggest a clear next step without being repetitive or pushy.",
+  status_in_progress: "Write a focused B2B email for a lead currently in progress. Move the existing sales conversation forward with relevant value and a specific next step.",
+  status_converted: "Write a professional relationship-oriented email for a converted lead. Reinforce the value of the relationship and suggest an appropriate next step without treating the lead as a cold prospect.",
+  status_closed: "Write a respectful B2B email for a closed lead. Keep the message concise and context-aware, and only suggest a next step if it is genuinely appropriate.",
+  status_lost: "Write a thoughtful re-engagement email for a lost lead. Acknowledge that the previous opportunity did not progress without inventing reasons, offer relevant value, and use a low-pressure call to action.",
   all: "Write professional B2B outreach appropriate for a general lead audience.",
   default: "Write professional, concise B2B outreach appropriate for the selected campaign audience.",
 };
 
-const resolveAudiencePrompt = (audienceLabel = "") => {
-  const key = String(audienceLabel)
-    .toLowerCase()
-    .replace(/[^a-z]/g, "");
-  if (key.includes("qualified")) return AUDIENCE_PROMPTS.qualified;
-  if (key.includes("hot")) return AUDIENCE_PROMPTS.hot;
-  if (key.includes("followup") || key.includes("followup")) return AUDIENCE_PROMPTS.followup;
-  if (key.includes("highpriority") || key.includes("priority")) return AUDIENCE_PROMPTS.highpriority;
-  if (key === "all" || key.includes("allleads")) return AUDIENCE_PROMPTS.all;
+const resolveAudiencePrompt = ({ audienceType = "all", audienceContext = {} } = {}) => {
+  if (audienceType === "status") {
+    const key = String(audienceContext.status || "").toLowerCase();
+    const statusKey = `status_${key}`;
+    return AUDIENCE_PROMPTS[statusKey] || AUDIENCE_PROMPTS.default;
+  }
+
+  if (audienceType === "all") return AUDIENCE_PROMPTS.all;
+
+  if (audienceType === "tag") {
+    return "Write B2B outreach specifically relevant to the selected tag audience. Use the tag context to shape the message, but do not claim facts about the lead that are not supplied.";
+  }
+
+  if (audienceType === "segment") {
+    return "Write B2B outreach specifically relevant to the saved segment. Use the segment name and its actual filters/conditions to shape the message while using only supplied lead data as factual information.";
+  }
+
+  if (audienceType === "score") {
+    return "Write B2B outreach appropriate to the selected lead-score range. Use the score audience context to calibrate relevance and sales intent, but do not mention or invent a score-based fact unless it is useful and supported.";
+  }
+
   return AUDIENCE_PROMPTS.default;
 };
 
@@ -63,9 +77,13 @@ exports.personalizeCampaignEmail = async ({
   jobTitle,
   industry,
   location,
+  leadStatus,
+  leadScore,
   campaignName,
   campaignDescription,
   audienceLabel,
+  audienceType,
+  audienceContext,
   stepNumber,
 }) => {
   try {
@@ -74,14 +92,26 @@ exports.personalizeCampaignEmail = async ({
 
     const ai = new GoogleGenAI({ apiKey });
     const model = process.env.GEMINI_MODEL || "gemini-2.5-flash";
-    const audiencePrompt = resolveAudiencePrompt(audienceLabel);
+    const normalizedAudienceType = audienceType || "all";
+    const normalizedAudienceContext =
+      audienceContext && typeof audienceContext === "object"
+        ? audienceContext
+        : {};
+    const audiencePrompt = resolveAudiencePrompt({
+      audienceType: normalizedAudienceType,
+      audienceContext: normalizedAudienceContext,
+    });
+
+    const audienceContextText = JSON.stringify(normalizedAudienceContext);
 
     const prompt = `You are generating one personalized B2B campaign email for one specific lead.
 
 Campaign: ${campaignName || "Sales outreach"}
 Campaign context: ${campaignDescription || "Professional B2B outreach"}
 Step: ${stepNumber || 1}
-Audience: ${audienceLabel || "General Leads"}
+Audience type: ${normalizedAudienceType}
+Audience label: ${audienceLabel || "General Leads"}
+Audience context and conditions: ${audienceContextText}
 Audience-specific instruction:
 ${audiencePrompt}
 
@@ -91,11 +121,14 @@ Company: ${company || ""}
 Job Title: ${jobTitle || ""}
 Industry: ${industry || ""}
 Location: ${location || ""}
+Lead Status: ${leadStatus || ""}
+Lead Score: ${leadScore ?? ""}
 
 Rules:
 - Generate a concise, natural, professional B2B email for THIS lead.
-- Use only the lead data supplied above as factual information.
-- Never invent achievements, products, pain points, customers, numbers, relationships, or other facts.
+- Use the audience type and audience context/conditions to make the message relevant to this specific campaign audience.
+- Use only the lead data and audience context supplied above as factual information.
+- Never invent achievements, products, pain points, customers, numbers, relationships, reasons for status changes, or other facts.
 - Make the wording meaningfully personalized to the available lead data.
 - Include a clear but non-pushy call to action.
 - Return ONLY valid JSON with exactly two string fields: "subject" and "body".
@@ -110,7 +143,7 @@ Rules:
     const raw = response.text?.trim();
     if (!raw) throw new Error("Gemini returned an empty response");
 
-    const cleaned = raw.replace(/^\`\`\`(?:json)?\s*/i, "").replace(/\s*\`\`\`$/i, "").trim();
+    const cleaned = raw.replace(/^\`\`\`(?:json)?\\s*/i, "").replace(/\\s*\`\`\`$/i, "").trim();
     let parsed;
     try {
       parsed = JSON.parse(cleaned);
