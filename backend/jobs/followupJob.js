@@ -306,6 +306,12 @@ try {
 
   body = personalized.body;
   personalizedSubject = personalized.subject;
+
+  logger.info("job.sequence.ai_personalization_succeeded", {
+    enrollmentId: enrollment.id,
+    email: enrollment.email,
+    step: enrollment.currentStep,
+  });
 } catch (error) {
   logger.warn("job.sequence.ai_personalization_failed", {
     enrollmentId: enrollment.id,
@@ -351,6 +357,11 @@ try {
             <img src="${tracking.openUrl}" width="1" height="1" style="display:none;" alt="" />`;
 
         const subject = personalizedSubject;
+        logger.info("job.sequence.email_sending", {
+          enrollmentId: enrollment.id,
+          email: enrollment.email,
+          step: enrollment.currentStep,
+        });
         const sendResult = await sendEmail({
           to: enrollment.email,
           subject,
