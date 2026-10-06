@@ -40,7 +40,7 @@ const getCampaignAudienceContext = async (audience, orgId) => {
   if (value.type === "tag" && value.tagId) {
     const tag = await prisma.tag.findFirst({
       where: { id: Number(value.tagId), orgId },
-      select: { id: true, name: true, filters: true },
+      select: { id: true, name: true, slug: true },
     });
     return { type: "tag", label: tag?.name || "Tagged Leads", tagId: Number(value.tagId), tagName: tag?.name || "Tagged Leads", tagSlug: tag?.slug || "" };
   }
@@ -48,12 +48,13 @@ const getCampaignAudienceContext = async (audience, orgId) => {
   if (value.type === "segment" && value.savedSearchId) {
     const segment = await prisma.savedSearch.findFirst({
       where: { id: Number(value.savedSearchId), resource: "leads", OR: [{ orgId }, { orgId: null }] },
-      select: { name: true },
+      select: { id: true, name: true, filters: true },
     });
     return { type: "segment", label: segment?.name || "Segment Leads", savedSearchId: Number(value.savedSearchId), segmentName: segment?.name || "Segment Leads", filters: segment?.filters || {} };
   }
 
-  if (value.type === "score") return { type: "score", label: "Score-based Leads", min: value.min ?? null, max: value.max ?? null };\n  return { type: "all", label: "All Leads" };
+  if (value.type === "score") return { type: "score", label: "Score-based Leads", min: value.min ?? null, max: value.max ?? null };
+  return { type: "all", label: "All Leads" };
 };
 
 
@@ -300,7 +301,11 @@ try {
     location: lead?.location || "",
     campaignName: campaign.name || "",
     campaignDescription: campaign.description || "",
-    audienceLabel,
+    audienceLabel: audienceContext.label,
+    audienceType: audienceContext.type,
+    audienceContext,
+    leadStatus: enrollment.lead?.status || "",
+    leadScore: enrollment.lead?.score ?? "",
     stepNumber: enrollment.currentStep + 1,
   });
 
