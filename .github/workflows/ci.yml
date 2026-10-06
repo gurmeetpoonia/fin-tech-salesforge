@@ -72,6 +72,13 @@ jobs:
           DATABASE_URL: postgresql://postgres:postgres1234@localhost:5432/salesforge_test
           DIRECT_URL: postgresql://postgres:postgres1234@localhost:5432/salesforge_test
         run: node prisma/seed.js
+      - name: Run backend unit tests
+        working-directory: backend
+        env:
+          DATABASE_URL: postgresql://postgres:postgres1234@localhost:5432/salesforge_test
+          DIRECT_URL: postgresql://postgres:postgres1234@localhost:5432/salesforge_test
+        run: npm test
+
       - name: Boot server
         working-directory: backend
         env:
