@@ -194,15 +194,8 @@ const getMatchingCampaignLeads = async (audience, orgId) => {
 };
 
 const getCampaignAudienceCount = async (audience, orgId) => {
-  const normalizedAudience = normalizeAudience(audience);
-  if (normalizedAudience.type === "segment") {
-    const leads = await getMatchingCampaignLeads(audience, orgId);
-    return leads.length;
-  }
-
-  const leadWhere = await buildAudienceLeadWhere(audience, orgId);
-  if (!leadWhere) return 0;
-  return prisma.lead.count({ where: leadWhere });
+  const leads = await getMatchingCampaignLeads(audience, orgId);
+  return leads.length;
 };
 
 const ensureCampaignSequence = async ({ campaign, orgId, userId, steps }) => {
