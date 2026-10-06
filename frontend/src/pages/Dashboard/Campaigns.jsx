@@ -357,9 +357,11 @@ const Campaigns = () => {
                           ? "Scheduled"
                           : c.conditions?.status === "completed"
                             ? "Completed"
-                            : c.active
-                              ? "Running"
-                              : "Draft"}
+                            : c.conditions?.status === "error"
+                              ? "Error"
+                              : c.active
+                                ? "Running"
+                                : "Draft"}
                     </UptoBadge>
 
                     {c.conditions?.status === "paused" ? (
@@ -377,6 +379,10 @@ const Campaigns = () => {
                       <span className="text-sm text-slate-500">Completed</span>
                     ) : !c.active && c.conditions?.status === "scheduled" ? (
                       <span className="text-sm text-slate-500">Waiting for schedule</span>
+                    ) : c.conditions?.status === "error" ? (
+                      <span className="text-sm text-amber-600 dark:text-amber-400">
+                        Configuration error — edit and reschedule
+                      </span>
                     ) : !c.active ? (
                       <UptoButton variant="ghost" onClick={() => handleLaunch(c.id)}>
                         Schedule
@@ -413,6 +419,13 @@ const Campaigns = () => {
                     </UptoButton>
                   </div>
                 </div>
+
+                {c.conditions?.status === "error" && c.conditions?.lastError && (
+                  <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 dark:border-amber-900/50 dark:bg-amber-950/20 p-3 text-xs">
+                    <div className="font-semibold text-amber-800 dark:text-amber-300">Campaign activation error</div>
+                    <div className="mt-1 text-amber-700 dark:text-amber-400">{c.conditions.lastError}</div>
+                  </div>
+                )}
 
                 {expandedId === c.id && c.conditions?.status === "scheduled" && !c.active && (
                   <div className="mt-3 rounded-lg bg-slate-50 dark:bg-slate-800/60 p-3">

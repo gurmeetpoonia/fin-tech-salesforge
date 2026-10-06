@@ -176,11 +176,27 @@ const update = asyncHandler(async (req, res) => {
 
   // Editing a scheduled campaign must never activate it early. The latest
   // schedule remains the source of truth for the scheduler.
+  const configurationChanged =
+    audienceChanged ||
+    segment !== undefined ||
+    budget !== undefined ||
+    steps !== undefined ||
+    scheduleChanged;
+
   if (!wasRunning && scheduleChanged) {
     data.active = false;
     nextConditions.status = nextSchedule ? "scheduled" : "draft";
     delete nextConditions.autoPaused;
     delete nextConditions.lastError;
+    delete nextConditions.errorAt;
+  } else if (!wasRunning && currentConditions.status === "error" && configurationChanged) {
+    // A configuration change is the explicit recovery action for a failed
+    // scheduled campaign. Clear the saved error and return it to scheduling.
+    data.active = false;
+    nextConditions.status = nextSchedule ? "scheduled" : "draft";
+    delete nextConditions.autoPaused;
+    delete nextConditions.lastError;
+    delete nextConditions.errorAt;
   } else if (status !== undefined && wasRunning) {
     data.active = status === "running";
     nextConditions.status = status;
@@ -260,10 +276,19 @@ const activateCampaign = async ({
   // They are intentionally NOT required for campaign activation.
   // Keep at least one sequence step so a valid campaign can enroll leads
   // and let the worker generate the actual email content.
-  const campaignSteps =
+  const rawCampaignSteps =
     Array.isArray(conditions.steps) && conditions.steps.length > 0
       ? conditions.steps
       : [{ day: 0 }];
+
+  // Gemini owns campaign email content. Strip any legacy/manual subject/body
+  // fields before sequence creation so old campaigns cannot reintroduce a
+  // removed template requirement.
+  const campaignSteps = rawCampaignSteps.map((step) => {
+    if (!step || typeof step !== "object") return { day: 0 };
+    const { subject: _subject, body: _body, ...stepWithoutEmailContent } = step;
+    return stepWithoutEmailContent;
+  });
 
   // Sequence creation happens only at activation time. A scheduled campaign
   // therefore has no SequenceEnrollment records before its start time.
