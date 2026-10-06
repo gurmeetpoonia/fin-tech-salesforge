@@ -53,7 +53,7 @@ const getCampaignAudienceContext = async (audience, orgId) => {
     return { type: "segment", label: segment?.name || "Segment Leads", savedSearchId: Number(value.savedSearchId), segmentName: segment?.name || "Segment Leads", filters: segment?.filters || {} };
   }
 
-  if (value.type === "score") return { type: "score", label: "Score-based Leads", min: value.min ?? null, max: value.max ?? null };
+  if (value.type === "score") return { type: "score", label: "Score-based Leads", operator: value.operator || "", value: value.value ?? null, min: value.min ?? null, max: value.max ?? null, conditions: Array.isArray(value.conditions) ? value.conditions : [] };
   return { type: "all", label: "All Leads" };
 };
 
