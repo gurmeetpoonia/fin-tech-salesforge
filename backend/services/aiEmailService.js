@@ -63,24 +63,24 @@ exports.personalizeCampaignEmail = async ({
   jobTitle,
   industry,
   location,
-  originalBody,
+  campaignName,
+  campaignDescription,
   audienceLabel,
+  stepNumber,
 }) => {
   try {
     const apiKey = process.env.GEMINI_API_KEY;
-
-    if (!apiKey) {
-      throw new Error("GEMINI_API_KEY is not configured");
-    }
+    if (!apiKey) throw new Error("GEMINI_API_KEY is not configured");
 
     const ai = new GoogleGenAI({ apiKey });
-
     const model = process.env.GEMINI_MODEL || "gemini-2.5-flash";
-
     const audiencePrompt = resolveAudiencePrompt(audienceLabel);
 
-    const prompt = `You are generating the email body for a B2B campaign.
+    const prompt = `You are generating one personalized B2B campaign email for one specific lead.
 
+Campaign: ${campaignName || "Sales outreach"}
+Campaign context: ${campaignDescription || "Professional B2B outreach"}
+Step: ${stepNumber || 1}
 Audience: ${audienceLabel || "General Leads"}
 Audience-specific instruction:
 ${audiencePrompt}
@@ -92,36 +92,42 @@ Job Title: ${jobTitle || ""}
 Industry: ${industry || ""}
 Location: ${location || ""}
 
-Existing campaign body/template:
-${originalBody || ""}
-
 Rules:
-- Treat the lead data above as the only source of factual information about this person or company.
-- You may personalize wording, but you must never invent names, roles, companies, industries, locations, achievements, products, pain points, customers, numbers, or other facts.
-- Follow the audience-specific instruction above.
-- Preserve the campaign's intended purpose.
-- Keep the email concise, natural, professional, and suitable for B2B outreach.
-- Do not add a subject line, greeting metadata, explanations, or markdown fences.
-- Return only the final email body.`;
+- Generate a concise, natural, professional B2B email for THIS lead.
+- Use only the lead data supplied above as factual information.
+- Never invent achievements, products, pain points, customers, numbers, relationships, or other facts.
+- Make the wording meaningfully personalized to the available lead data.
+- Include a clear but non-pushy call to action.
+- Return ONLY valid JSON with exactly two string fields: "subject" and "body".
+- Do not include markdown fences or explanations.
+- The body should be ready to send as HTML-safe plain email text.`;
 
     const response = await ai.models.generateContent({
       model,
       contents: [{ role: "user", parts: [{ text: prompt }] }],
     });
 
-    const output = response.text?.trim();
+    const raw = response.text?.trim();
+    if (!raw) throw new Error("Gemini returned an empty response");
 
-    if (!output) {
-      throw new Error("Gemini returned an empty response");
+    const cleaned = raw.replace(/^\`\`\`(?:json)?\s*/i, "").replace(/\s*\`\`\`$/i, "").trim();
+    let parsed;
+    try {
+      parsed = JSON.parse(cleaned);
+    } catch {
+      throw new Error("Gemini returned invalid email JSON");
     }
 
-    return { output };
-  } catch (error) {
-    console.error(
-      "AI Campaign Personalization error:",
-      error.message
-    );
+    if (!parsed?.subject?.trim() || !parsed?.body?.trim()) {
+      throw new Error("Gemini returned incomplete email content");
+    }
 
+    return {
+      subject: parsed.subject.trim(),
+      body: parsed.body.trim(),
+    };
+  } catch (error) {
+    console.error("AI Campaign Personalization error:", error.message);
     throw new Error("AI campaign personalization service unavailable");
   }
 };
