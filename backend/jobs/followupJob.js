@@ -3,6 +3,7 @@
 const cron = require("node-cron");
 const crypto = require("crypto");
 const { prisma } = require("../config/postgres");
+const { AppError } = require("../middleware/errorHandler");
 const { sendEmail } = require("../utils/sendEmail");
 const { generateTracking } = require("../controllers/emailTrackingController");
 const { personalizeCampaignEmail } = require("../services/aiEmailService");
@@ -507,7 +508,7 @@ const activateDueCampaigns = async () => {
 
       if (!conditions.schedule) {
         if (conditions.status === "scheduled") {
-          throw new (require("../middleware/errorHandler").AppError)(
+          throw new AppError(
             "A valid campaign schedule date and time is required.",
             400
           );
@@ -518,7 +519,7 @@ const activateDueCampaigns = async () => {
       const scheduledAt = new Date(conditions.schedule);
 
       if (Number.isNaN(scheduledAt.getTime())) {
-        throw new (require("../middleware/errorHandler").AppError)(
+        throw new AppError(
           "A valid campaign schedule date and time is required.",
           400
         );
