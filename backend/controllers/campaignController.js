@@ -246,8 +246,6 @@ const activateCampaign = async ({
     };
   }
 
-  const subject = "";
-  const body = "";
   const scheduledAt = conditions.schedule ? new Date(conditions.schedule) : null;
 
   if (!scheduledAt || Number.isNaN(scheduledAt.getTime())) {
