@@ -24,6 +24,15 @@ jobs:
           --health-interval 10s
           --health-timeout 5s
           --health-retries 5
+      redis:
+        image: redis:7
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
 
     steps:
       - uses: actions/checkout@v4
@@ -71,16 +80,24 @@ jobs:
           PORT: 3001
           NODE_ENV: test
           JWT_SECRET: test-secret-for-ci
+          REDIS_URL: redis://localhost:6379
         run: |
           nohup node server.js > /tmp/sf-backend.log 2>&1 &
           echo $! > /tmp/sf-backend.pid
+          ready=false
           for i in $(seq 1 30); do
             if curl -fsS http://localhost:3001/api/health >/dev/null 2>&1; then
               echo "Backend ready after ${i}s"
+              ready=true
               break
             fi
             sleep 1
           done
+          if [ "$ready" != "true" ]; then
+            echo "Backend failed to become ready. Server log:"
+            cat /tmp/sf-backend.log || true
+            exit 1
+          fi
       - name: Smoke-test endpoints
         env:
           API: http://localhost:3001
