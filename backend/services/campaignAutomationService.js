@@ -575,11 +575,15 @@ const leadMatchesAudience = async (lead, audience, orgId) => {
       primaryMatches = valuesMatch(lead.status, normalizedAudience.status);
       break;
     case "tag": {
-      const tagId = Number(normalizedAudience.tagId);
-      primaryMatches = Number.isInteger(tagId) && tagId > 0 &&
-        Array.isArray(lead.tags) && lead.tags.some((entry) => Number(entry.tagId) === tagId);
-      break;
-    }
+  const tagIds = Array.isArray(normalizedAudience.tagIds)
+    ? normalizedAudience.tagIds.map(Number).filter(Number.isInteger)
+    : [Number(normalizedAudience.tagId)].filter(Number.isInteger);
+  primaryMatches = tagIds.length > 0 &&
+    Array.isArray(lead.tags) &&
+    lead.tags.some((entry) => tagIds.includes(Number(entry.tagId)));
+  break;
+}
+    
     case "score":
       if (normalizedAudience.operator) {
         primaryMatches = compareAudienceValue(lead.score, normalizedAudience.operator, normalizedAudience.value);

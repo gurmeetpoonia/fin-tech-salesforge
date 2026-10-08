@@ -29,6 +29,8 @@ const Campaigns = () => {
   const [expandedId, setExpandedId] = useState(null);
   const [leadsByCampaign, setLeadsByCampaign] = useState({});
   const [loadingLeads, setLoadingLeads] = useState(false);
+  const [showSegmentBuilder, setShowSegmentBuilder] = useState(false);
+  const [segmentDraft, setSegmentDraft] = useState({ name: "", logic: "AND", conditions: [] });
   const toLocalDateTimeInput = (value) => {
     if (!value) return "";
     const date = new Date(value);
@@ -83,13 +85,31 @@ const Campaigns = () => {
 
   return () => clearInterval(interval);
 }, []);
+  useEffect(() => {
+  if (expandedId === null) return;
 
+  const refreshLeads = async () => {
+    try {
+      const data = await campaignService.getLeads(expandedId);
+
+      setLeadsByCampaign((prev) => ({
+        ...prev,
+        [expandedId]: data.leads || [],
+      }));
+    } catch (err) {
+      console.error("Failed to refresh campaign leads:", err);
+    }
+  };
+
+  const interval = setInterval(refreshLeads, 5000);
+
+  return () => clearInterval(interval);
+}, [expandedId]);
   const handleAudienceTypeChange = (type) => {
     if (type === "all") {
       setDraft({ ...draft, audience: { type: "all" } });
     } else if (type === "tag") {
-      const firstTagId = tags[0]?.id || "";
-      setDraft({ ...draft, audience: { type: "tag", tagId: firstTagId } });
+      setDraft({ ...draft, audience: { type: "tag", tagIds: [] } });
     } else if (type === "status") {
       setDraft({ ...draft, audience: { type: "status", status: "new" } });
     } else if (type === "score") {
@@ -112,9 +132,10 @@ const Campaigns = () => {
     }
 
     if (audienceObj?.type === "all") return "All Leads";
-    if (audienceObj?.type === "tag") {
-      const tag = tags.find((t) => t.id === Number(audienceObj.tagId));
-      return tag ? `Tag: ${tag.name}` : `Tag #${audienceObj.tagId}`;
+       if (audienceObj?.type === "tag") {
+      const ids = audienceObj.tagIds || (audienceObj.tagId ? [audienceObj.tagId] : []);
+      const names = ids.map((id) => tags.find((t) => t.id === Number(id))?.name).filter(Boolean);
+      return names.length ? `Tags: ${names.join(", ")}` : "Tag: —";
     }
     if (audienceObj?.type === "status") {
       const matchedStatus = LEAD_STATUS_OPTIONS.find((s) => s.value === audienceObj.status);
@@ -142,8 +163,8 @@ const Campaigns = () => {
         toast.error("Please select a tag");
         return;
       }
-      if (aud.type === "status" && !aud.status) {
-        toast.error("Please select a status");
+      if (aud.type === "tag" && (!aud.tagIds || aud.tagIds.length === 0)) {
+        toast.error("Please select at least one tag");
         return;
       }
       if (aud.type === "score") {
@@ -272,7 +293,8 @@ const Campaigns = () => {
   };
   const toggleLeads = async (campaignId) => {
   const campaign = items.find((item) => item.id === campaignId);
-  const isScheduled = campaign?.conditions?.status === "scheduled" && !campaign.active;
+  const isScheduled =
+    campaign?.conditions?.status === "scheduled" && !campaign.active;
 
   if (expandedId === campaignId) {
     setExpandedId(null);
@@ -281,20 +303,21 @@ const Campaigns = () => {
 
   setExpandedId(campaignId);
 
-  // Scheduled campaigns already receive their latest expected-lead preview
-  // from the campaign list endpoint, so do not query enrollments here.
   if (isScheduled) return;
 
-  if (!leadsByCampaign[campaignId]) {
-    setLoadingLeads(true);
-    try {
-      const data = await campaignService.getLeads(campaignId);
-      setLeadsByCampaign((prev) => ({ ...prev, [campaignId]: data.leads || [] }));
-    } catch (err) {
-      toast.error(err?.message || "Failed to load leads");
-    } finally {
-      setLoadingLeads(false);
-    }
+  setLoadingLeads(true);
+
+  try {
+    const data = await campaignService.getLeads(campaignId);
+
+    setLeadsByCampaign((prev) => ({
+      ...prev,
+      [campaignId]: data.leads || [],
+    }));
+  } catch (err) {
+    toast.error(err?.message || "Failed to load leads");
+  } finally {
+    setLoadingLeads(false);
   }
 };
 
@@ -518,28 +541,33 @@ const Campaigns = () => {
                   <option value="score">By Score</option>
                 </select>
 
-                {(typeof draft.audience === "object" && draft.audience?.type === "tag") && (
+                                {(typeof draft.audience === "object" && draft.audience?.type === "tag") && (
                   <div className="mt-2">
-                    <label className="text-xs text-slate-500 mb-1 block">Select Tag</label>
+                    <label className="text-xs text-slate-500 mb-1 block">Select Tags (matches ANY selected)</label>
                     {tags.length === 0 ? (
                       <div className="text-xs text-amber-600 dark:text-amber-400">No tags available. Please create tags first in Leads.</div>
                     ) : (
-                      <select
-                        className="w-full rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 p-2 text-sm"
-                        value={draft.audience?.tagId || ""}
-                        onChange={(e) =>
-                          setDraft({
-                            ...draft,
-                            audience: { type: "tag", tagId: Number(e.target.value) },
-                          })
-                        }
-                      >
-                        {tags.map((t) => (
-                          <option key={t.id} value={t.id}>
-                            {t.name}
-                          </option>
-                        ))}
-                      </select>
+                      <div className="space-y-1 max-h-40 overflow-y-auto border border-slate-200 dark:border-slate-700 rounded-xl p-2">
+                        {tags.map((t) => {
+                          const selected = (draft.audience?.tagIds || []).includes(t.id);
+                          return (
+                            <label key={t.id} className="flex items-center gap-2 text-sm cursor-pointer">
+                              <input
+                                type="checkbox"
+                                checked={selected}
+                                onChange={(e) => {
+                                  const current = draft.audience?.tagIds || [];
+                                  const tagIds = e.target.checked
+                                    ? [...current, t.id]
+                                    : current.filter((id) => id !== t.id);
+                                  setDraft({ ...draft, audience: { type: "tag", tagIds } });
+                                }}
+                              />
+                              {t.name}
+                            </label>
+                          );
+                        })}
+                      </div>
                     )}
                   </div>
                 )}
@@ -547,39 +575,64 @@ const Campaigns = () => {
                 {(typeof draft.audience === "object" && draft.audience?.type === "score") && (
                   <div className="mt-2 space-y-3">
                     <label className="text-xs text-slate-500 block">Score condition</label>
-                    <div className="grid grid-cols-2 gap-2">
-                      <select
-                        className="w-full rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 p-2 text-sm"
-                        value={draft.audience?.operator || "gte"}
-                        onChange={(e) => setDraft({
-                          ...draft,
-                          audience: { ...draft.audience, operator: e.target.value },
-                        })}
-                      >
-                        <option value="gt">&gt; Greater than</option>
-                        <option value="gte">≥ Greater than or equal</option>
-                        <option value="lt">&lt; Less than</option>
-                        <option value="lte">≤ Less than or equal</option>
-                        <option value="between">Between</option>
-                      </select>
-                      <UptoInput
-                        label={draft.audience?.operator === "between" ? "Minimum" : "Score"}
-                        type="number"
-                        min="0"
-                        value={draft.audience?.operator === "between"
-                          ? (draft.audience?.min ?? "")
-                          : (draft.audience?.value ?? "")}
-                        onChange={(e) => {
-                          const value = e.target.value === "" ? "" : Number(e.target.value);
-                          setDraft({
-                            ...draft,
-                            audience: draft.audience?.operator === "between"
-                              ? { ...draft.audience, min: value }
-                              : { ...draft.audience, value },
-                          });
-                        }}
-                      />
-                    </div>
+ <div className="grid grid-cols-2 gap-2">
+  {/* Score Operator */}
+  <div className="min-w-0 -mt-6">
+    <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">
+      &nbsp;
+    </label>
+
+    <select
+      className="w-full min-w-0 h-[42px] rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+      value={draft.audience?.operator || "gte"}
+      onChange={(e) =>
+        setDraft({
+          ...draft,
+          audience: {
+            ...draft.audience,
+            operator: e.target.value,
+          },
+        })
+      }
+    >
+      <option value="gt">&gt; Greater than</option>
+      <option value="gte">≥ Greater than or equal</option>
+      <option value="lt">&lt; Less than</option>
+      <option value="lte">≤ Less than or equal</option>
+      <option value="between">Between</option>
+    </select>
+  </div>
+
+  {/* Score Value */}
+ <div className="min-w-0 -mt-6">
+    <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">
+      {draft.audience?.operator === "between" ? "Minimum" : "Score"}
+    </label>
+
+    <input
+      type="number"
+      min="0"
+      className="w-full min-w-0 h-[42px] rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+      value={
+        draft.audience?.operator === "between"
+          ? (draft.audience?.min ?? "")
+          : (draft.audience?.value ?? "")
+      }
+      onChange={(e) => {
+        const value =
+          e.target.value === "" ? "" : Number(e.target.value);
+
+        setDraft({
+          ...draft,
+          audience:
+            draft.audience?.operator === "between"
+              ? { ...draft.audience, min: value }
+              : { ...draft.audience, value },
+        });
+      }}
+    />
+  </div>
+</div>
                     {draft.audience?.operator === "between" && (
                       <UptoInput
                         label="Maximum"
@@ -593,55 +646,92 @@ const Campaigns = () => {
                       />
                     )}
 
-                    <div className="border-t border-slate-200 dark:border-slate-700 pt-3 space-y-2">
-                      <label className="text-xs text-slate-500 block">Optional additional conditions (AND)</label>
-                      <select
-                        className="w-full rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 p-2 text-sm"
-                        value={draft.audience?.conditions?.[0]?.field || ""}
-                        onChange={(e) => {
-                          const field = e.target.value;
-                          const conditions = field
-                            ? [{ field, operator: "equals", value: field === "status" ? "new" : (tags[0]?.id || "") }]
-                            : [];
-                          setDraft({ ...draft, audience: { ...draft.audience, conditions } });
-                        }}
-                      >
-                        <option value="">No additional condition</option>
-                        <option value="status">Status</option>
-                        <option value="tagId">Tag</option>
-                      </select>
-                      {draft.audience?.conditions?.[0]?.field === "status" && (
-                        <select
-                          className="w-full rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 p-2 text-sm"
-                          value={draft.audience.conditions[0].value || ""}
-                          onChange={(e) => setDraft({
-                            ...draft,
-                            audience: {
-                              ...draft.audience,
-                              conditions: [{ ...draft.audience.conditions[0], value: e.target.value }],
-                            },
-                          })}
+                                        <div className="border-t border-slate-200 dark:border-slate-700 pt-3 space-y-2">
+                      <div className="flex items-center justify-between">
+                        <label className="text-xs text-slate-500 block">Additional conditions (AND)</label>
+                        <button
+                          type="button"
+                          className="text-xs text-blue-600 dark:text-blue-400"
+                          onClick={() => {
+                            const conditions = [...(draft.audience?.conditions || []), { field: "status", operator: "equals", value: "new" }];
+                            setDraft({ ...draft, audience: { ...draft.audience, conditions } });
+                          }}
                         >
-                          {LEAD_STATUS_OPTIONS.map((st) => (
-                            <option key={st.value} value={st.value}>{st.label}</option>
-                          ))}
-                        </select>
-                      )}
-                      {draft.audience?.conditions?.[0]?.field === "tagId" && (
-                        <select
-                          className="w-full rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 p-2 text-sm"
-                          value={draft.audience.conditions[0].value || ""}
-                          onChange={(e) => setDraft({
-                            ...draft,
-                            audience: {
-                              ...draft.audience,
-                              conditions: [{ ...draft.audience.conditions[0], value: Number(e.target.value) }],
-                            },
-                          })}
-                        >
-                          {tags.map((tag) => <option key={tag.id} value={tag.id}>{tag.name}</option>)}
-                        </select>
-                      )}
+                          + Add condition
+                        </button>
+                      </div>
+
+                      {(draft.audience?.conditions || []).map((cond, idx) => (
+                        <div key={idx} className="flex items-center gap-2">
+                          <select
+                            className="flex-1 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 p-2 text-sm"
+                            value={cond.field}
+                            onChange={(e) => {
+                              const field = e.target.value;
+                              const conditions = [...draft.audience.conditions];
+                              conditions[idx] = { field, operator: "equals", value: field === "status" ? "new" : field === "tagId" ? (tags[0]?.id || "") : "" };
+                              setDraft({ ...draft, audience: { ...draft.audience, conditions } });
+                            }}
+                          >
+                            <option value="status">Status</option>
+                            <option value="tagId">Tag</option>
+                            <option value="source">Source</option>
+                            <option value="industry">Industry</option>
+                            <option value="companySize">Company Size</option>
+                            <option value="jobTitle">Job Title</option>
+                          </select>
+
+                          {cond.field === "status" ? (
+                            <select
+                              className="flex-1 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 p-2 text-sm"
+                              value={cond.value || ""}
+                              onChange={(e) => {
+                                const conditions = [...draft.audience.conditions];
+                                conditions[idx] = { ...conditions[idx], value: e.target.value };
+                                setDraft({ ...draft, audience: { ...draft.audience, conditions } });
+                              }}
+                            >
+                              {LEAD_STATUS_OPTIONS.map((st) => (
+                                <option key={st.value} value={st.value}>{st.label}</option>
+                              ))}
+                            </select>
+                          ) : cond.field === "tagId" ? (
+                            <select
+                              className="flex-1 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 p-2 text-sm"
+                              value={cond.value || ""}
+                              onChange={(e) => {
+                                const conditions = [...draft.audience.conditions];
+                                conditions[idx] = { ...conditions[idx], value: Number(e.target.value) };
+                                setDraft({ ...draft, audience: { ...draft.audience, conditions } });
+                              }}
+                            >
+                              {tags.map((tag) => <option key={tag.id} value={tag.id}>{tag.name}</option>)}
+                            </select>
+                          ) : (
+                            <input
+                              className="flex-1 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 p-2 text-sm"
+                              placeholder="Value"
+                              value={cond.value || ""}
+                              onChange={(e) => {
+                                const conditions = [...draft.audience.conditions];
+                                conditions[idx] = { ...conditions[idx], value: e.target.value };
+                                setDraft({ ...draft, audience: { ...draft.audience, conditions } });
+                              }}
+                            />
+                          )}
+
+                          <button
+                            type="button"
+                            className="text-red-500 text-sm px-2"
+                            onClick={() => {
+                              const conditions = draft.audience.conditions.filter((_, i) => i !== idx);
+                              setDraft({ ...draft, audience: { ...draft.audience, conditions } });
+                            }}
+                          >
+                            ✕
+                          </button>
+                        </div>
+                      ))}
                     </div>
                   </div>
                 )}
@@ -668,8 +758,8 @@ const Campaigns = () => {
                   </div>
                 )}
 
-                {(typeof draft.audience === "object" && draft.audience?.type === "segment") && (
-                  <div className="mt-2">
+                                {(typeof draft.audience === "object" && draft.audience?.type === "segment") && (
+                  <div className="mt-2 space-y-2">
                     <label className="text-xs text-slate-500 mb-1 block">Select Saved Segment</label>
                     {segments.length === 0 ? (
                       <div className="text-xs text-amber-600 dark:text-amber-400">No lead segments saved yet.</div>
@@ -690,6 +780,168 @@ const Campaigns = () => {
                           </option>
                         ))}
                       </select>
+                    )}
+
+                    <button
+                      type="button"
+                      className="text-xs text-blue-600 dark:text-blue-400"
+                      onClick={() => setShowSegmentBuilder((v) => !v)}
+                    >
+                      {showSegmentBuilder ? "Cancel new segment" : "+ Create new segment"}
+                    </button>
+
+                    {showSegmentBuilder && (
+                      <div className="border border-slate-200 dark:border-slate-700 rounded-xl p-3 space-y-2">
+                        <input
+                          className="w-full rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 p-2 text-sm"
+                          placeholder="Segment name (e.g. Hot & Qualified)"
+                          value={segmentDraft.name}
+                          onChange={(e) => setSegmentDraft({ ...segmentDraft, name: e.target.value })}
+                        />
+
+                        <div className="flex items-center justify-between">
+                          <label className="text-xs text-slate-500">Conditions</label>
+                          <div className="flex items-center gap-2">
+                            <select
+                              className="rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 p-1 text-xs"
+                              value={segmentDraft.logic}
+                              onChange={(e) => setSegmentDraft({ ...segmentDraft, logic: e.target.value })}
+                            >
+                              <option value="AND">Match ALL (AND)</option>
+                              <option value="OR">Match ANY (OR)</option>
+                            </select>
+                            <button
+                              type="button"
+                              className="text-xs text-blue-600 dark:text-blue-400"
+                              onClick={() => setSegmentDraft({
+                                ...segmentDraft,
+                                conditions: [...segmentDraft.conditions, { field: "status", operator: "equals", value: "qualified" }],
+                              })}
+                            >
+                              + Add
+                            </button>
+                          </div>
+                        </div>
+
+                        {segmentDraft.conditions.map((cond, idx) => (
+                          <div key={idx} className="flex items-center gap-1">
+                            <select
+                              className="flex-1 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 p-1.5 text-xs"
+                              value={cond.field}
+                              onChange={(e) => {
+                                const conditions = [...segmentDraft.conditions];
+                                conditions[idx] = { ...conditions[idx], field: e.target.value };
+                                setSegmentDraft({ ...segmentDraft, conditions });
+                              }}
+                            >
+                              <option value="status">Status</option>
+                              <option value="score">Score</option>
+                              <option value="source">Source</option>
+                              <option value="industry">Industry</option>
+                              <option value="companySize">Company Size</option>
+                              <option value="jobTitle">Job Title</option>
+                              <option value="tagId">Tag</option>
+                            </select>
+                            <select
+                              className="rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 p-1.5 text-xs"
+                              value={cond.operator}
+                              onChange={(e) => {
+                                const conditions = [...segmentDraft.conditions];
+                                conditions[idx] = { ...conditions[idx], operator: e.target.value };
+                                setSegmentDraft({ ...segmentDraft, conditions });
+                              }}
+                            >
+                              <option value="equals">=</option>
+                              <option value="not_equals">≠</option>
+                              <option value="gt">&gt;</option>
+                              <option value="gte">≥</option>
+                              <option value="lt">&lt;</option>
+                              <option value="lte">≤</option>
+                              <option value="contains">contains</option>
+                            </select>
+                            {cond.field === "status" ? (
+                              <select
+                                className="flex-1 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 p-1.5 text-xs"
+                                value={cond.value}
+                                onChange={(e) => {
+                                  const conditions = [...segmentDraft.conditions];
+                                  conditions[idx] = { ...conditions[idx], value: e.target.value };
+                                  setSegmentDraft({ ...segmentDraft, conditions });
+                                }}
+                              >
+                                {LEAD_STATUS_OPTIONS.map((st) => (
+                                  <option key={st.value} value={st.value}>{st.label}</option>
+                                ))}
+                              </select>
+                            ) : cond.field === "tagId" ? (
+                              <select
+                                className="flex-1 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 p-1.5 text-xs"
+                                value={cond.value}
+                                onChange={(e) => {
+                                  const conditions = [...segmentDraft.conditions];
+                                  conditions[idx] = { ...conditions[idx], value: Number(e.target.value) };
+                                  setSegmentDraft({ ...segmentDraft, conditions });
+                                }}
+                              >
+                                {tags.map((tag) => <option key={tag.id} value={tag.id}>{tag.name}</option>)}
+                              </select>
+                            ) : (
+                              <input
+                                className="flex-1 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 p-1.5 text-xs"
+                                placeholder="Value"
+                                value={cond.value}
+                                onChange={(e) => {
+                                  const conditions = [...segmentDraft.conditions];
+                                  const raw = e.target.value;
+                                  conditions[idx] = { ...conditions[idx], value: cond.field === "score" ? Number(raw) : raw };
+                                  setSegmentDraft({ ...segmentDraft, conditions });
+                                }}
+                              />
+                            )}
+                            <button
+                              type="button"
+                              className="text-red-500 text-xs px-1"
+                              onClick={() => setSegmentDraft({
+                                ...segmentDraft,
+                                conditions: segmentDraft.conditions.filter((_, i) => i !== idx),
+                              })}
+                            >
+                              ✕
+                            </button>
+                          </div>
+                        ))}
+
+                        <UptoButton
+                          type="button"
+                          onClick={async () => {
+                            if (!segmentDraft.name.trim()) {
+                              toast.error("Please name the segment");
+                              return;
+                            }
+                            if (segmentDraft.conditions.length === 0) {
+                              toast.error("Add at least one condition");
+                              return;
+                            }
+                            try {
+                              const saved = await savedSearchService.create({
+                                name: segmentDraft.name,
+                                resource: "leads",
+                                filters: { logic: segmentDraft.logic, conditions: segmentDraft.conditions },
+                              });
+                              toast.success("Segment created");
+                              const newSeg = saved?.data || saved;
+                              setSegments((prev) => [...prev, newSeg]);
+                              setDraft({ ...draft, audience: { type: "segment", savedSearchId: newSeg.id } });
+                              setShowSegmentBuilder(false);
+                              setSegmentDraft({ name: "", logic: "AND", conditions: [] });
+                            } catch (err) {
+                              toast.error(err?.message || "Failed to create segment");
+                            }
+                          }}
+                        >
+                          Save Segment
+                        </UptoButton>
+                      </div>
                     )}
                   </div>
                 )}

@@ -8,6 +8,50 @@ const axiosInstance = axios.create({
   timeout: TIMEOUT,
 });
 
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+const isTransientAiError = (err) => {
+  const msg = String(err?.message || "");
+  return (
+    /"code":\s*(429|500|503|504)|UNAVAILABLE|RESOURCE_EXHAUSTED|DEADLINE_EXCEEDED|timed out|ECONNRESET|ETIMEDOUT|fetch failed/i.test(msg) ||
+    [429, 500, 503, 504].includes(Number(err?.status || err?.code))
+  );
+};
+
+const withTimeout = (promise, ms) =>
+  Promise.race([
+    promise,
+    new Promise((_, reject) =>
+      setTimeout(() => reject(new Error(`Gemini request timed out after ${ms}ms`)), ms)
+    ),
+  ]);
+
+// Retries transient Gemini errors (503/429/timeouts) and optionally falls back
+// to a second model so a short Google overload doesn't block campaign emails.
+const generateWithRetry = async (ai, request) => {
+  const primary = process.env.GEMINI_MODEL || "gemini-2.5-flash";
+  const fallback = process.env.GEMINI_FALLBACK_MODEL;
+  const models = fallback && fallback !== primary ? [primary, primary, fallback] : [primary, primary];
+  const timeoutMs = Number(process.env.GEMINI_REQUEST_TIMEOUT_MS || 20000);
+
+  let lastError;
+  for (let attempt = 0; attempt < models.length; attempt++) {
+    try {
+ console.log(
+      `[Gemini] Attempt ${attempt + 1}/${models.length} using model: ${models[attempt]}`
+    );
+      return await withTimeout(
+        ai.models.generateContent({ ...request, model: models[attempt] }),
+        timeoutMs
+      );
+    } catch (err) {
+      lastError = err;
+      if (!isTransientAiError(err) || attempt === models.length - 1) break;
+      await sleep(1000 * 2 ** attempt); // 1s, then 2s
+    }
+  }
+  throw lastError;
+};
 
 /*
   Outreach message generation
@@ -135,8 +179,7 @@ Rules:
 - Do not include markdown fences or explanations.
 - The body should be ready to send as HTML-safe plain email text.`;
 
-    const response = await ai.models.generateContent({
-      model,
+        const response = await generateWithRetry(ai, {
       contents: [{ role: "user", parts: [{ text: prompt }] }],
     });
 
