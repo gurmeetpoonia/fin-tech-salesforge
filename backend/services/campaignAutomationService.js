@@ -120,9 +120,19 @@ const buildAudienceLeadWhere = async (audience, orgId) => {
   const leadWhere = { orgId, email: { not: "" } };
 
   if (normalizedAudience.type === "tag") {
-    const tagId = Number(normalizedAudience.tagId);
-    if (!Number.isInteger(tagId) || tagId <= 0) return null;
-    leadWhere.tags = { some: { tagId } };
+    // ✅ Extract all tag IDs (supports both tagIds array and single tagId)
+    const tagIds = Array.isArray(normalizedAudience.tagIds)
+      ? normalizedAudience.tagIds.map(Number).filter(Number.isInteger)
+      : [Number(normalizedAudience.tagId)].filter(Number.isInteger);
+
+    if (tagIds.length === 0) return null;
+
+    // Prisma query for ANY matching tag
+    leadWhere.tags = {
+      some: {
+        tagId: { in: tagIds },
+      },
+    };
     return leadWhere;
   }
 
@@ -161,10 +171,16 @@ const buildAudienceLeadWhere = async (audience, orgId) => {
   return leadWhere;
 };
 
+// ✅ Correct Use:
 const getMatchingCampaignLeads = async (audience, orgId) => {
   const normalizedAudience = normalizeAudience(audience);
+  const leadWhere = await buildAudienceLeadWhere(normalizedAudience, orgId);
+
+  // Agar simple condition (tag, status, all, score) hai toh direct filtered leads fetch hongi
+  const baseWhere = leadWhere || { orgId, email: { not: "" } };
+
   const leads = await prisma.lead.findMany({
-    where: { orgId, email: { not: "" } },
+    where: baseWhere,
     include: {
       tags: {
         select: {
@@ -574,15 +590,36 @@ const leadMatchesAudience = async (lead, audience, orgId) => {
     case "status":
       primaryMatches = valuesMatch(lead.status, normalizedAudience.status);
       break;
-    case "tag": {
-  const tagIds = Array.isArray(normalizedAudience.tagIds)
-    ? normalizedAudience.tagIds.map(Number).filter(Number.isInteger)
-    : [Number(normalizedAudience.tagId)].filter(Number.isInteger);
-  primaryMatches = tagIds.length > 0 &&
-    Array.isArray(lead.tags) &&
-    lead.tags.some((entry) => tagIds.includes(Number(entry.tagId)));
-  break;
-}
+   case "tag": {
+      // ✅ Handle both array and single numeric ID
+      const tagIds = Array.isArray(normalizedAudience.tagIds)
+        ? normalizedAudience.tagIds.map(Number).filter(Number.isInteger)
+        : [Number(normalizedAudience.tagId)].filter(Number.isInteger);
+
+      if (tagIds.length === 0) {
+        primaryMatches = false;
+        break;
+      }
+
+      // 1. In-memory check agar lead.tags pehle se query mein included ho
+      if (Array.isArray(lead.tags) && lead.tags.length > 0) {
+        primaryMatches = lead.tags.some((entry) =>
+          tagIds.includes(Number(entry.tagId || entry.id || entry.tag?.id))
+        );
+      } else if (lead.id) {
+        // 2. DB fallback agar lead object ke paas tags relation pre-loaded na ho
+        const found = await prisma.leadTag.findFirst({
+          where: {
+            leadId: lead.id,
+            tagId: { in: tagIds },
+          },
+        });
+        primaryMatches = Boolean(found);
+      } else {
+        primaryMatches = false;
+      }
+      break;
+    }
     
     case "score":
       if (normalizedAudience.operator) {
@@ -642,4 +679,5 @@ module.exports = {
   getMatchingCampaignLeads,
   getCampaignAudienceCount,
   ensureCampaignSequence,
+  buildAudienceLeadWhere,
 };

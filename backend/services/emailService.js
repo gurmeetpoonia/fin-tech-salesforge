@@ -18,6 +18,9 @@
  */
 
 const nodemailer = require("nodemailer");
+const {
+  personalizeCampaignEmail,
+} = require("./aiEmailService");
 
 let _transporter = null;
 
@@ -147,9 +150,81 @@ const verifyConnection = async () => {
     return false;
   }
 };
+/**
+ * Sends a campaign email to a lead.
+ *
+ * @param {object} opts
+ * @param {object} opts.lead
+ * @param {object} opts.campaign
+ * @param {object} opts.enrollment
+ * @returns {Promise<boolean>}
+ */
+const sendCampaignEmail = async ({ lead, campaign, enrollment }) => {
+  if (!lead?.email) {
+    console.warn("[EmailService] Campaign email skipped: lead email missing.");
+    return false;
+  }
 
+  try {
+    const audience = campaign?.conditions?.audience || {};
+
+    const audienceType = audience?.type || "all";
+
+    const audienceContext = audience;
+
+    const audienceLabel =
+      audience?.label ||
+      campaign?.name ||
+      "General Leads";
+
+    const currentStep = Array.isArray(enrollment?.steps)
+      ? enrollment.steps[enrollment.currentStep]
+      : null;
+
+    const generated = await personalizeCampaignEmail({
+      name: lead.name,
+      company: lead.companyName,
+      jobTitle: lead.jobTitle,
+      industry: lead.industry,
+      location: lead.location,
+      leadStatus: lead.status,
+      leadScore: lead.score,
+
+      campaignName: campaign.name,
+      campaignDescription: campaign.description,
+
+      audienceLabel,
+      audienceType,
+      audienceContext,
+
+      stepNumber: (enrollment.currentStep || 0) + 1,
+    });
+
+    if (!generated?.subject || !generated?.body) {
+      console.warn(
+        "[EmailService] Gemini returned incomplete campaign email."
+      );
+      return false;
+    }
+
+    return await send({
+      to: lead.email,
+      subject: generated.subject,
+      html: generated.body.replace(/\n/g, "<br>"),
+      text: generated.body,
+    });
+  } catch (error) {
+    console.error(
+      "[EmailService] Gemini campaign email failed:",
+      error.message || error
+    );
+
+    return false;
+  }
+};
 module.exports = {
   send,
   sendNotificationEmail,
   verifyConnection,
+  sendCampaignEmail,
 };
